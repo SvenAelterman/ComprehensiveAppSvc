@@ -9,14 +9,18 @@ Param(
 	[ValidateSet('eastus2', 'eastus')]
 	[string]$Location = 'eastus',
 	# The environment descriptor
-	[ValidateSet('test', 'demo', 'prod')]
-	[string]$Environment = 'test',
+	[ValidateSet('TEST', 'DEMO', 'PROD')]
+	[string]$Environment = 'TEST',
 	#
 	[Parameter(Mandatory = $true)]
 	[string]$WorkloadName,
 	#
 	[int]$Sequence = 1,
-	[string]$NamingConvention = "{rtype}-{wloadname}-{env}-{loc}-{seq}"
+	[string]$NamingConvention = "{rtype}-{wloadname}-{env}-{loc}-{seq}",
+	[Parameter(Mandatory)]
+	[string]$TargetSubscription,
+	[Parameter(Mandatory)]
+	[PSCustomObject]$Tags
 )
 
 $TemplateParameters = @{
@@ -28,12 +32,10 @@ $TemplateParameters = @{
 	# OPTIONAL
 	sequence         = $Sequence
 	namingConvention = $NamingConvention
-	tags             = @{
-		'date-created' = (Get-Date -Format 'yyyy-MM-dd')
-		purpose        = $Environment
-		lifetime       = 'short'
-	}
+	tags             = $Tags
 }
+
+Select-AzSubscription $TargetSubscription
 
 $DeploymentResult = New-AzDeployment -Location $Location -Name "$WorkloadName-$Environment-$(Get-Date -Format 'yyyyMMddThhmmssZ' -AsUTC)" `
 	-TemplateFile ".\main.bicep" -TemplateParameterObject $TemplateParameters
@@ -41,4 +43,5 @@ $DeploymentResult = New-AzDeployment -Location $Location -Name "$WorkloadName-$E
 $DeploymentResult
 
 if ($DeploymentResult.ProvisioningState -eq 'Succeeded') {
+	Write-Host "🔥 Azure Resource Manager deployment successful!"
 }

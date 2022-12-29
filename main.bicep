@@ -1,14 +1,14 @@
 targetScope = 'subscription'
 
 @allowed([
-  'eastus2'
   'eastus'
+  'eastus2'
 ])
 param location string
 @allowed([
-  'test'
-  'demo'
-  'prod'
+  'TEST'
+  'DEMO'
+  'PROD'
 ])
 param environment string
 param workloadName string
@@ -16,7 +16,7 @@ param workloadName string
 // Optional parameters
 param tags object = {}
 param sequence int = 1
-param namingConvention string = '{rtype}-{wloadname}-{env}-{loc}-{seq}'
+param namingConvention string = '{wloadname}-{env}-{rtype}-{loc}-{seq}'
 param deploymentTime string = utcNow()
 
 // Variables
@@ -26,22 +26,36 @@ var deploymentNameStructure = '${workloadName}-${environment}-{rtype}-${deployme
 // Naming structure only needs the resource type ({rtype}) replaced
 var namingStructure = replace(replace(replace(replace(namingConvention, '{env}', environment), '{loc}', location), '{seq}', sequenceFormatted), '{wloadname}', workloadName)
 
-resource workloadResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' = {
-  name: replace(namingStructure, '{rtype}', 'rg')
+resource networkingRg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
+  name: take(replace(namingStructure, '{rtype}', 'rg-networking'), 64)
   location: location
   tags: tags
 }
 
-module roles 'common-modules/roles.bicep' = {
-  name: replace(deploymentNameStructure, '{rtype}', 'roles')
-  scope: workloadResourceGroup
+resource dataRg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
+  name: take(replace(namingStructure, '{rtype}', 'rg-data'), 64)
+  location: location
+  tags: tags
 }
 
-module abbreviations 'common-modules/abbreviations.bicep' = {
-  name: replace(deploymentNameStructure, '{rtype}', 'abbrev')
-  scope: workloadResourceGroup
+resource computeRg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
+  name: take(replace(namingStructure, '{rtype}', 'rg-compute'), 64)
+  location: location
+  tags: tags
 }
 
-// TODO: Add your deployments here
+resource securityRg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
+  name: take(replace(namingStructure, '{rtype}', 'rg-security'), 64)
+  location: location
+  tags: tags
+}
 
-output namingStructure string = namingStructure
+resource appsRg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
+  name: take(replace(namingStructure, '{rtype}', 'rg-apps'), 64)
+  location: location
+  tags: tags
+}
+
+module rolesModule 'common-modules/roles.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'roles'), 64)
+}
