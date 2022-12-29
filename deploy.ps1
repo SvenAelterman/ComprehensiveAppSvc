@@ -16,23 +16,70 @@ Param(
 	[string]$WorkloadName,
 	#
 	[int]$Sequence = 1,
-	[string]$NamingConvention = "{rtype}-{wloadname}-{env}-{loc}-{seq}",
+	[string]$NamingConvention = "{wloadname}-{env}-{rtype}-{loc}-{seq}",
 	[Parameter(Mandatory)]
 	[string]$TargetSubscription,
 	[Parameter(Mandatory)]
-	[PSCustomObject]$Tags
+	[PSCustomObject]$Tags,
+	[Parameter(Mandatory = $true)]
+	[string]$MySQLVersion,
+	[Parameter(Mandatory = $true)]
+	[securestring]$DbAdminPassword,
+	[Parameter(Mandatory = $true)]
+	[securestring]$DbAppSvcLogin,
+	[Parameter(Mandatory = $true)]
+	[securestring]$DbAppSvcPassword,
+	[Parameter(Mandatory = $true)]
+	[string]$DatabaseName,
+	[Parameter(Mandatory = $true)]
+	[int]$VNetAddressSpaceOctet4Min,
+	[Parameter(Mandatory = $true)]
+	[string]$VNetAddressSpace,
+	[Parameter(Mandatory = $true)]
+	[int]$VNetCidr,
+	[Parameter(Mandatory = $true)]
+	[int]$SubnetCidr,
+	[Parameter(Mandatory = $true)]
+	[string]$WebHostName,
+	[Parameter(Mandatory = $true)]
+	[string]$ApiHostName,
+	[bool]$DeployComputeRg = $false,
+	[PSCustomObject]$ApiAppSettings = @{},
+	[PSCustomObject]$WebAppSettings = @{},
+	[string]$DeveloperPrincipalId,
+	[Parameter(Mandatory)]
+	[securestring]$VmLocalPassword
 )
 
 $TemplateParameters = @{
 	# REQUIRED
-	location         = $Location
-	environment      = $Environment
-	workloadName     = $WorkloadName
+	location                  = $Location
+	environment               = $Environment
+	workloadName              = $WorkloadName
+
+	mySqlVersion              = $MySQLVersion
+	databaseName              = $DatabaseName
+	dbAdminPassword           = $DbAdminPassword
+	dbAppsvcLogin             = $DbAppSvcLogin
+	dbAppSvcPassword          = $DbAppSvcPassword
+	vNetAddressSpaceOctet4Min = $VNetAddressSpaceOctet4Min
+	vNetAddressSpace          = $VNetAddressSpace
+	vNetCidr                  = $VNetCidr
+	subnetCidr                = $SubnetCidr
+	apiHostName               = $ApiHostName
+	webHostName               = $WebHostName
+	vmLocalPassword           = $VmLocalPassword
 
 	# OPTIONAL
-	sequence         = $Sequence
-	namingConvention = $NamingConvention
-	tags             = $Tags
+	developerPrincipalId      = $DeveloperPrincipalId
+	deployBastion             = $DeployBastion
+	deployDefaultSubnet       = $DeployDefaultSubnet
+	apiAppSettings            = $ApiAppSettings
+	webAppSettings            = $WebAppSettings
+
+	sequence                  = $Sequence
+	namingConvention          = $NamingConvention
+	tags                      = $Tags
 }
 
 Select-AzSubscription $TargetSubscription
