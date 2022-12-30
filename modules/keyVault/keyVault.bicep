@@ -1,8 +1,13 @@
 param location string
 param namingStructure string
 param keyVaultName string
-param privateEndpointSubnetId string
-param privateDnsZoneId string
+
+// For virtual network rules
+param allowedSubnetIds array = []
+
+// Provide if private endpoint is needed
+param privateEndpointSubnetId string = ''
+param privateDnsZoneId string = ''
 
 param privateEndpointResourceGroupName string = resourceGroup().name
 param allowPublicAccess bool = false
@@ -25,7 +30,11 @@ resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
     tenantId: subscription().tenantId
     networkAcls: {
       bypass: 'AzureServices'
-      defaultAction: allowPublicAccess ? 'Allow' : 'Deny'
+      defaultAction: (empty(allowedSubnetIds) && empty(privateEndpointSubnetId)) ? 'Allow' : 'Deny'
+      virtualNetworkRules: [for subnet in allowedSubnetIds: {
+        id: subnet
+        ignoreMissingVnetServiceEndpoint: false
+      }]
     }
     publicNetworkAccess: allowPublicAccess ? 'Enabled' : 'Disabled'
   }
@@ -44,12 +53,12 @@ resource kvLock 'Microsoft.Authorization/locks@2020-05-01' = {
 // Deploy a private endpoint for the Key Vault
 var peName = replace(namingStructure, '{rtype}', 'pe-kv')
 
-resource peRg 'Microsoft.Resources/resourceGroups@2021-04-01' existing = {
+resource peRg 'Microsoft.Resources/resourceGroups@2021-04-01' existing = if (!empty(privateEndpointSubnetId)) {
   name: privateEndpointResourceGroupName
   scope: subscription()
 }
 
-module pe '../privateEndpoint.bicep' = {
+module pe '../privateEndpoint.bicep' = if (!empty(privateEndpointSubnetId)) {
   name: 'kv-pe'
   scope: peRg
   params: {
@@ -67,5 +76,5 @@ module pe '../privateEndpoint.bicep' = {
 
 output keyVaultName string = keyVault.name
 output keyVaultUrl string = keyVault.properties.vaultUri
-output peCustomDnsConfigs array = pe.outputs.peCustomDnsConfigs
-output nicIds array = pe.outputs.nicIds
+output peCustomDnsConfigs array = !empty(privateEndpointSubnetId) ? pe.outputs.peCustomDnsConfigs : []
+output nicIds array = !empty(privateEndpointSubnetId) ? pe.outputs.nicIds : []

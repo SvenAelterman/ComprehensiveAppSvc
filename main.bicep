@@ -127,7 +127,14 @@ var subnets = {
   }
   apps: {
     addressPrefix: '${replace(vNetAddressSpace, '{octet4}', string(vNetAddressSpaceOctet4Min + (1 * subnetBoundary)))}/${subnetCidr}'
-    serviceEndpoints: []
+    serviceEndpoints: [
+      {
+        service: 'Microsoft.KeyVault'
+        locations: [
+          '*'
+        ]
+      }
+    ]
     delegation: 'Microsoft.Web/serverFarms'
     securityRules: []
     routeTable: ''
@@ -152,10 +159,17 @@ var subnets = {
 var defaultSubnet = deployDefaultSubnet ? {
   default: {
     addressPrefix: '${replace(vNetAddressSpace, '{octet4}', string(vNetAddressSpaceOctet4Min + (3 * subnetBoundary)))}/${subnetCidr}'
-    // Allow compute resources in the default subnet to bypass App Svc IP restrictions
     serviceEndpoints: [
+      // Allow compute resources in the default subnet to bypass App Svc IP restrictions
       {
         service: 'Microsoft.Web'
+        locations: [
+          '*'
+        ]
+      }
+      // Allow compute resources to access the Key Vault
+      {
+        service: 'Microsoft.KeyVault'
         locations: [
           '*'
         ]
@@ -284,6 +298,54 @@ module mySqlModule 'modules/mysql.bicep' = {
     mySqlPrivateDnsZoneLinkModule
     bastionModule
   ]
+}
+
+// Create a name for the Key Vault
+module keyVaultNameModule 'common-modules/shortname.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'kv-name'), 64)
+  scope: securityRg
+  params: {
+    location: location
+    environment: environment
+    namingConvention: namingConvention
+    resourceType: 'kv'
+    sequence: sequence
+    workloadName: workloadName
+  }
+}
+
+// Determine which subnets to allow access to the KV via virtual network rules
+var kvAllowedSubnetIds = [
+  networkModule.outputs.createdSubnets.apps.id
+]
+var defaultSubnetIdArray = deployDefaultSubnet ? [
+  networkModule.outputs.createdSubnets.default.id
+] : []
+
+var actualKvAllowedSubnetIds = concat(kvAllowedSubnetIds, defaultSubnetIdArray)
+
+// Create the Key Vault with virtual network rules instead of private endpoint
+module keyVaultModule 'modules/keyVault/keyVault.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'kv'), 64)
+  scope: securityRg
+  params: {
+    location: location
+    keyVaultName: keyVaultNameModule.outputs.shortName
+    namingStructure: namingStructure
+    allowedSubnetIds: actualKvAllowedSubnetIds
+    allowPublicAccess: true
+    tags: tags
+  }
+}
+
+module logModule 'modules/log.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'log'), 64)
+  scope: securityRg
+  params: {
+    location: location
+    namingStructure: namingStructure
+    tags: tags
+  }
 }
 
 module rolesModule 'common-modules/roles.bicep' = {

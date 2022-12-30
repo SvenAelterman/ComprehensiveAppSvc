@@ -1,14 +1,14 @@
 param namingStructure string
 param location string
-param savedQueryStorageAccountName string
 
+param savedQueryStorageAccountName string = ''
 param tags object = {}
 
 resource logAnalyticsWS 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   name: replace(namingStructure, '{rtype}', 'log')
   location: location
   properties: {
-    forceCmkForQuery: true
+    forceCmkForQuery: empty(savedQueryStorageAccountName) ? false : true
     features: {
       enableLogAccessUsingOnlyResourcePermissions: true
     }
@@ -25,12 +25,12 @@ resource lock 'Microsoft.Authorization/locks@2017-04-01' = {
   }
 }
 
-resource savedQueryStorageAccount 'Microsoft.Storage/storageAccounts@2021-09-01' existing = {
+resource savedQueryStorageAccount 'Microsoft.Storage/storageAccounts@2021-09-01' existing = if (!empty(savedQueryStorageAccountName)) {
   name: savedQueryStorageAccountName
 }
 
 // Set the storage account for saved queries
-resource logLinkedStorageAccount 'Microsoft.OperationalInsights/workspaces/linkedStorageAccounts@2020-08-01' = {
+resource logLinkedStorageAccount 'Microsoft.OperationalInsights/workspaces/linkedStorageAccounts@2020-08-01' = if (!empty(savedQueryStorageAccountName)) {
   name: 'Query'
   parent: logAnalyticsWS
   properties: {
