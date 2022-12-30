@@ -1,12 +1,14 @@
-# BicepTemplate
+# Comprehensive Azure Web App Templates
 
-Template repo for creating a new Bicep deployment.
+These set of templates deploy the resources in the architecture diagram below:
+
+![Architecture Diagram](docs/Wellness%20architecture.png)
 
 ## Usage
 
 ### main.bicep
 
-This is the template that will be deployed. You should add resources or reference modules here.
+This is the template that will be deployed.
 
 ### deploy.ps1
 
@@ -18,7 +20,7 @@ The modules in this folder are modules that contain re-usable outputs.
 
 ### modules
 
-You should create your own modules folder and reference those modules from main.bicep or other modules.
+The modules in this folder create the Azure resources. Many have parameters to enhance their flexibility and reusability.
 
 ## Parameters
 
@@ -36,4 +38,4 @@ Here are the common parameters defined by the template main.bicep:
   * **{loc}**: Replaced with the value of the `location` parameter.
   * **{seq}**: Replaced with the string value of the sequence parameter, always formatted as two digits.
 
-These parameters are passed to the deployment from the PowerShell script using the `$Parameters` object, which uses parameter splatting for increased resilience.
+These parameters are passed to the deployment from the PowerShell script using the `$TemplateParameters` object, which uses parameter splatting for increased resilience.
