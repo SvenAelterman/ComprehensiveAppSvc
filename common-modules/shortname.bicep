@@ -15,6 +15,7 @@ param location string
   'cr'
   'pg'
   'ci'
+  'mysql'
 ])
 param resourceType string
 param environment string
@@ -53,6 +54,11 @@ var Defs = {
     alwaysRemoveSegmentSeparator: false
   }
   ci: {
+    lowerCase: true
+    maxLength: 63
+    alwaysRemoveSegmentSeparator: false
+  }
+  mysql: {
     lowerCase: true
     maxLength: 63
     alwaysRemoveSegmentSeparator: false
@@ -106,6 +112,6 @@ var actualNameCased = lowerCase ? toLower(actualName) : actualName
 output shortName string = take(actualNameCased, maxLength)
 
 // For debugging only
-output workloadNameCharsKept int = workloadNameCharsToKeep
-output originalShortNameLength int = length(shortName)
-output actualNameCased string = actualNameCased
+// output workloadNameCharsKept int = workloadNameCharsToKeep
+// output originalShortNameLength int = length(shortName)
+// output actualNameCased string = actualNameCased

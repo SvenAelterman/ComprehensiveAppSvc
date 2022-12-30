@@ -48,7 +48,11 @@ Param(
 	[PSCustomObject]$WebAppSettings = @{},
 	[string]$DeveloperPrincipalId,
 	[Parameter(Mandatory)]
-	[securestring]$VmLocalPassword
+	[securestring]$VmLocalPassword,
+	[bool]$IntuneMdmRegister = $true,
+	[bool]$DeveloperVmLoginAsAdmin = $false,
+	[Parameter(Mandatory)]
+	[string]$VMComputerName
 )
 
 $TemplateParameters = @{
@@ -69,11 +73,12 @@ $TemplateParameters = @{
 	apiHostName               = $ApiHostName
 	webHostName               = $WebHostName
 	vmLocalPassword           = $VmLocalPassword
+	intuneMdmRegister         = $IntuneMdmRegister
+	developerVmLoginAsAdmin   = $DeveloperVmLoginAsAdmin
+	VMComputerName            = $VMComputerName
 
 	# OPTIONAL
 	developerPrincipalId      = $DeveloperPrincipalId
-	deployBastion             = $DeployBastion
-	deployDefaultSubnet       = $DeployDefaultSubnet
 	apiAppSettings            = $ApiAppSettings
 	webAppSettings            = $WebAppSettings
 

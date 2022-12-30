@@ -59,6 +59,7 @@ output actualSubnets array = [for i in range(0, length(subnetDefsArray)): {
   '${subnetRes[i].name}': {
     id: subnetRes[i].id
     addressPrefix: subnetRes[i].properties.addressPrefix
+    name: subnetRes[i].name
     // Add as many additional subnet properties as needed downstream
   }
 }]

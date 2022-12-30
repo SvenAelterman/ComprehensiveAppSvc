@@ -1,8 +1,8 @@
 param location string
-param namingStructure string
+param mySqlServerName string
 param delegateSubnetId string
-param virtualNetworkId string
-param virtualNetworkName string
+param dnsZoneId string
+param tags object
 
 @secure()
 param dbAdminPassword string
@@ -12,36 +12,12 @@ param dbAdminUserName string = 'dbadmin'
 param storageGB int = 20
 param databaseName string
 param mySqlVersion string = '8.0.21'
-
-// Construct the MySQL server name - must be lowercase
-var mySQLServerName = toLower(replace(namingStructure, '{rtype}', 'mysql'))
-
-// Create a private DNS zone to host the MySQL Flexible Server records
-resource dnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' = {
-  name: '${mySQLServerName}.private.mysql.database.azure.com'
-  location: 'global'
-}
-
-// Link the private DNS zone to the workload VNet
-resource dnsZoneVnetLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {
-  name: virtualNetworkName
-  parent: dnsZone
-  location: 'global'
-  properties: {
-    virtualNetwork: {
-      id: virtualNetworkId
-    }
-    registrationEnabled: false
-  }
-}
+param disableTlsRequirement bool = false
 
 // Create the MySQL Flexible Server
-resource mySQL 'Microsoft.DBforMySQL/flexibleServers@2021-05-01' = {
-  name: mySQLServerName
+resource mySql 'Microsoft.DBforMySQL/flexibleServers@2021-05-01' = {
+  name: mySqlServerName
   location: location
-  dependsOn: [
-    dnsZoneVnetLink
-  ]
   sku: {
     name: 'Standard_D2ds_v4'
     tier: 'GeneralPurpose'
@@ -61,15 +37,17 @@ resource mySQL 'Microsoft.DBforMySQL/flexibleServers@2021-05-01' = {
     }
     network: {
       delegatedSubnetResourceId: delegateSubnetId
-      privateDnsZoneResourceId: dnsZone.id
+      privateDnsZoneResourceId: dnsZoneId
     }
   }
+  tags: tags
 }
 
-// Turn off requirement for TLS to connect to MySQL as Craft does not appear to support it
+// Turn off requirement for TLS to connect to MySQL
 #disable-next-line BCP245
-resource dbConfig 'Microsoft.DBForMySql/flexibleServers/configurations@2021-05-01' = {
-  name: '${mySQL.name}/require_secure_transport'
+resource dbConfig 'Microsoft.DBforMySQL/flexibleServers/configurations@2021-12-01-preview' = if (disableTlsRequirement) {
+  name: 'require_secure_transport'
+  parent: mySql
   #disable-next-line BCP073
   properties: {
     value: 'OFF'
@@ -81,12 +59,12 @@ resource dbConfig 'Microsoft.DBForMySql/flexibleServers/configurations@2021-05-0
 module db 'mysql-db.bicep' = {
   name: 'db'
   params: {
-    mySqlName: mySQL.name
+    mySqlName: mySql.name
     dbName: databaseName
   }
 }
 
-output fqdn string = mySQL.properties.fullyQualifiedDomainName
+output fqdn string = mySql.properties.fullyQualifiedDomainName
 output dbName string = databaseName
-output serverName string = mySQLServerName
-output id string = mySQL.id
+output serverName string = mySqlServerName
+output id string = mySql.id

@@ -18,6 +18,9 @@ param workloadName string
 param vmLocalUserName string = 'AzureUser'
 @secure()
 param vmLocalPassword string
+param intuneMdmRegister bool
+param developerVmLoginAsAdmin bool
+param vmComputerName string
 
 // Database parameters
 param mySqlVersion string = '8.3'
@@ -191,6 +194,95 @@ module networkModule 'modules/network.bicep' = {
   dependsOn: [
     // Explicitly define this because Bicep might not pick up on the reference in the variable
     rtAppGwModule
+  ]
+}
+
+// Construct the MySQL server name
+module mySqlServerNameModule 'common-modules/shortname.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'mysql-name'), 64)
+  scope: dataRg
+  params: {
+    location: location
+    environment: environment
+    namingConvention: namingConvention
+    resourceType: 'mysql'
+    sequence: sequence
+    workloadName: workloadName
+  }
+}
+
+module mySqlPrivateDnsZoneModule 'modules/privateDnsZone.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'dns-zone-mysql'), 64)
+  scope: networkingRg
+  params: {
+    zoneName: '${mySqlServerNameModule.outputs.shortName}.private.mysql.database.azure.com'
+  }
+}
+
+module mySqlPrivateDnsZoneLinkModule 'modules/privateDnsZoneVNetLink.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'dns-zone-link-mysql'), 64)
+  scope: networkingRg
+  params: {
+    dnsZoneName: mySqlPrivateDnsZoneModule.outputs.zoneName
+    vNetId: networkModule.outputs.vNetId
+  }
+}
+
+// Create a Bastion resource to access the management VM
+module bastionModule 'modules/bastion.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'bas'), 64)
+  scope: networkingRg
+  params: {
+    location: location
+    bastionSubnetId: networkModule.outputs.createdSubnets.azureBastionSubnet.id
+    namingStructure: namingStructure
+    tags: tags
+  }
+}
+
+// Create the management VM
+module vmModule 'modules/vm.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'vm'), 64)
+  scope: computeRg
+  params: {
+    location: location
+    adminPassword: vmLocalPassword
+    adminUsername: vmLocalUserName
+    subnetName: networkModule.outputs.createdSubnets.default.name
+    virtualMachineName: replace(namingStructure, '{rtype}', 'vm')
+    virtualMachineComputerName: vmComputerName
+    virtualNetworkId: networkModule.outputs.vNetId
+    intuneMdmRegister: intuneMdmRegister
+    tags: tags
+  }
+}
+
+// Create RBAC assignment to allow developers to sign in to the VM
+module loginRoleAssignment 'common-modules/roleAssignments/roleAssignment-rg.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'roles-rg-dev'), 64)
+  scope: computeRg
+  params: {
+    principalId: developerPrincipalId
+    roleDefinitionId: developerVmLoginAsAdmin ? rolesModule.outputs.roles['Virtual Machine Administrator Login'] : rolesModule.outputs.roles['Virtual Machine User Login']
+  }
+}
+
+module mySqlModule 'modules/mysql.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'mysql'), 64)
+  scope: dataRg
+  params: {
+    location: location
+    databaseName: databaseName
+    dbAdminPassword: dbAdminPassword
+    dbAdminUserName: dbAdminLogin
+    delegateSubnetId: networkModule.outputs.createdSubnets.mySql.id
+    mySqlServerName: mySqlServerNameModule.outputs.shortName
+    dnsZoneId: mySqlPrivateDnsZoneModule.outputs.zoneId
+    tags: tags
+  }
+  dependsOn: [
+    mySqlPrivateDnsZoneLinkModule
+    bastionModule
   ]
 }
 

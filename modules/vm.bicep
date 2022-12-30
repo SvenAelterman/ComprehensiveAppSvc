@@ -5,6 +5,7 @@ param virtualMachineName string
 param adminUsername string
 @secure()
 param adminPassword string
+param intuneMdmRegister bool
 
 param tags object = {}
 param patchMode string = 'AutomaticByOS'
@@ -15,11 +16,12 @@ param osDiskType string = 'StandardSSD_LRS'
 param osDiskDeleteOption string = 'Delete'
 param nicDeleteOption string = 'Delete'
 param virtualMachineSize string = 'Standard_D2s_v4'
+param enableAutoShutdown bool = true
 
 param imageReference object = {
   publisher: 'microsoftwindowsdesktop'
-  offer: 'office-365'
-  sku: 'win10-22h2-avd-m365-g2'
+  offer: 'windows-11'
+  sku: 'win11-21h2-ent'
   version: 'latest'
 }
 
@@ -43,7 +45,7 @@ resource subnet 'Microsoft.Network/virtualNetworks/subnets@2022-05-01' existing 
 }
 
 // LATER: Add random 3 digits at the end
-var networkInterfaceName = virtualMachineName
+var networkInterfaceName = '${virtualMachineName}_Nic'
 
 resource networkInterface 'Microsoft.Network/networkInterfaces@2021-03-01' = {
   name: networkInterfaceName
@@ -124,9 +126,26 @@ resource aadLoginExtension 'Microsoft.Compute/virtualMachines/extensions@2022-08
     autoUpgradeMinorVersion: true
     typeHandlerVersion: '1.0'
     // The setting below is key to enrolling in Intune
-    settings: {
+    settings: intuneMdmRegister ? {
       mdmId: '0000000a-0000-0000-c000-000000000000'
+    } : {}
+  }
+}
+
+resource autoShutdown 'Microsoft.DevTestLab/schedules@2018-09-15' = if (enableAutoShutdown) {
+  name: 'shutdown-computevm-${virtualMachine.name}'
+  location: location
+  properties: {
+    status: 'Enabled'
+    taskType: 'ComputeVmShutdownTask'
+    dailyRecurrence: {
+      time: '1900'
     }
+    timeZoneId: 'Eastern Standard Time'
+    notificationSettings: {
+      status: 'Disabled'
+    }
+    targetResourceId: virtualMachine.id
   }
 }
 
