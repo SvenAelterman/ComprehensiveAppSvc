@@ -23,7 +23,7 @@ param developerVmLoginAsAdmin bool
 param vmComputerName string
 
 // Database parameters
-param mySqlVersion string = '8.3'
+param mySqlVersion string = '8.0.21'
 param dbAdminLogin string = 'dbadmin'
 @secure()
 param dbAdminPassword string
@@ -71,6 +71,7 @@ var deploymentNameStructure = '${workloadName}-${environment}-{rtype}-${deployme
 // Naming structure only needs the resource type ({rtype}) replaced
 var namingStructure = replace(replace(replace(replace(namingConvention, '{env}', environment), '{loc}', location), '{seq}', sequenceFormatted), '{wloadname}', workloadName)
 
+// region Resource Groups
 resource networkingRg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
   name: take(replace(namingStructure, '{rtype}', 'rg-networking'), 64)
   location: location
@@ -100,6 +101,9 @@ resource appsRg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
   location: location
   tags: tags
 }
+// endregion
+
+// region Networking
 
 // Create the route table for the Application Gateway subnet
 module rtAppGwModule 'modules/routeTable-appGw.bicep' = {
@@ -211,6 +215,10 @@ module networkModule 'modules/network.bicep' = {
   ]
 }
 
+// endregion
+
+// region MySQL
+
 // Construct the MySQL server name
 module mySqlServerNameModule 'common-modules/shortname.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'mysql-name'), 64)
@@ -242,6 +250,8 @@ module mySqlPrivateDnsZoneLinkModule 'modules/privateDnsZoneVNetLink.bicep' = {
   }
 }
 
+// endregion
+
 // Create a Bastion resource to access the management VM
 module bastionModule 'modules/bastion.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'bas'), 64)
@@ -254,7 +264,7 @@ module bastionModule 'modules/bastion.bicep' = {
   }
 }
 
-// Create the management VM
+// region Create the management VM
 module vmModule 'modules/vm.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'vm'), 64)
   scope: computeRg
@@ -270,6 +280,7 @@ module vmModule 'modules/vm.bicep' = {
     tags: tags
   }
 }
+// endregion
 
 // Create RBAC assignment to allow developers to sign in to the VM
 module loginRoleAssignment 'common-modules/roleAssignments/roleAssignment-rg.bicep' = {
@@ -292,6 +303,7 @@ module mySqlModule 'modules/mysql.bicep' = {
     delegateSubnetId: networkModule.outputs.createdSubnets.mySql.id
     mySqlServerName: mySqlServerNameModule.outputs.shortName
     dnsZoneId: mySqlPrivateDnsZoneModule.outputs.zoneId
+    mySqlVersion: mySqlVersion
     tags: tags
   }
   dependsOn: [
@@ -337,6 +349,8 @@ module keyVaultModule 'modules/keyVault/keyVault.bicep' = {
     tags: tags
   }
 }
+
+// TODO: Create secrets for App Svc as necessary (database username, password)
 
 // Deploy a Log Analytics Workspace
 module logModule 'modules/log.bicep' = {
@@ -390,8 +404,147 @@ module appSvcModule 'modules/appSvc/appSvc-main.bicep' = {
   }
 }
 
+// region Deploy the Application Gateway, without TLS
+var backends = [
+  {
+    name: 'api'
+    appSvcName: appSvcModule.outputs.apiAppSvcName
+    hostName: apiHostName
+    // TODO: Change based on developer input
+    customProbePath: '/health-status'
+  }
+  {
+    name: 'web'
+    appSvcName: appSvcModule.outputs.webAppSvcName
+    hostName: webHostName
+    customProbePath: ''
+  }
+]
+
+// Deploy a user-assigned managed identity to allow the App GW to retrieve TLS certs from KV
+module uamiModule 'modules/uami.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'uami'), 64)
+  scope: securityRg
+  params: {
+    location: location
+    identityName: replace(namingStructure, '{rtype}', 'uami')
+    tags: tags
+  }
+}
+
+module uamiKvRoleAssignmentModule 'common-modules/roleAssignments/roleAssignment-kv.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'role-uami-kv'), 64)
+  scope: securityRg
+  params: {
+    kvName: keyVaultModule.outputs.keyVaultName
+    principalId: uamiModule.outputs.principalId
+    roleDefinitionId: rolesModule.outputs.roles['Key Vault Secrets User']
+  }
+}
+
+module appGwModule 'modules/appGw.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'appgw'), 64)
+  scope: networkingRg
+  params: {
+    location: location
+    appsRgName: appsRg.name
+    backendAppSvcs: backends
+    namingStructure: namingStructure
+    subnetId: networkModule.outputs.createdSubnets.appgw.id
+    uamiId: uamiModule.outputs.id
+    tags: tags
+
+    createHttpRedirectRoutingRules: false
+  }
+  dependsOn: [
+    appSvcModule
+    uamiKvRoleAssignmentModule
+  ]
+}
+
+// endregion
+
 module rolesModule 'common-modules/roles.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'roles'), 64)
 }
 
-// TODO: Developer role assignments
+// region Assign RBAC to the developer principal, if it's provided
+resource readerSubscriptionRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(developerPrincipalId)) {
+  name: guid(subscription().id, developerPrincipalId, 'Reader')
+  properties: {
+    principalId: developerPrincipalId
+    roleDefinitionId: rolesModule.outputs.roles.Reader
+  }
+}
+
+module contributorApiAppSvcRoleAssignmentModule 'common-modules/roleAssignments/roleAssignment-app.bicep' = if (!empty(developerPrincipalId)) {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'role-app-api-dev'), 64)
+  scope: appsRg
+  params: {
+    appSvcName: appSvcModule.outputs.apiAppSvcName
+    principalId: developerPrincipalId
+    roleDefinitionId: rolesModule.outputs.roles.Contributor
+  }
+}
+
+module contributorWebAppSvcRoleAssignmentModule 'common-modules/roleAssignments/roleAssignment-app.bicep' = if (!empty(developerPrincipalId)) {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'role-app-web-dev'), 64)
+  scope: appsRg
+  params: {
+    appSvcName: appSvcModule.outputs.webAppSvcName
+    principalId: developerPrincipalId
+    roleDefinitionId: rolesModule.outputs.roles.Contributor
+  }
+}
+
+module contributorAppGwRoleAssignmentModule 'common-modules/roleAssignments/roleAssignment-appGw.bicep' = if (!empty(developerPrincipalId)) {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'role-appgw-dev'), 64)
+  scope: networkingRg
+  params: {
+    appGwName: appGwModule.outputs.appGwName
+    principalId: developerPrincipalId
+    roleDefinitionId: rolesModule.outputs.roles.Contributor
+  }
+}
+
+module kvSecretsUserRoleAssignmentModule 'common-modules/roleAssignments/roleAssignment-kv.bicep' = if (!empty(developerPrincipalId)) {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'role-kv-secrets-dev'), 64)
+  scope: securityRg
+  params: {
+    kvName: keyVaultModule.outputs.keyVaultName
+    principalId: developerPrincipalId
+    roleDefinitionId: rolesModule.outputs.roles['Key Vault Secrets Officer']
+  }
+}
+
+module kvCertificatesOfficerRoleAssignmentModule 'common-modules/roleAssignments/roleAssignment-kv.bicep' = if (!empty(developerPrincipalId)) {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'role-kv-certs-dev'), 64)
+  scope: securityRg
+  params: {
+    kvName: keyVaultModule.outputs.keyVaultName
+    principalId: developerPrincipalId
+    roleDefinitionId: rolesModule.outputs.roles['Key Vault Certificates Officer']
+  }
+}
+
+module kvReaderRoleAssignmentModule 'common-modules/roleAssignments/roleAssignment-kv.bicep' = if (!empty(developerPrincipalId)) {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'role-kv-reader-dev'), 64)
+  scope: securityRg
+  params: {
+    kvName: keyVaultModule.outputs.keyVaultName
+    principalId: developerPrincipalId
+    roleDefinitionId: rolesModule.outputs.roles['Key Vault Reader']
+  }
+}
+
+module uamiOperatorRoleAssignmentModule 'common-modules/roleAssignments/roleAssignment-uami.bicep' = if (!empty(developerPrincipalId)) {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'role-uami-dev'), 64)
+  scope: securityRg
+  params: {
+    principalId: developerPrincipalId
+    roleDefinitionId: rolesModule.outputs.roles['Managed Identity Operator']
+    uamiName: uamiModule.outputs.name
+  }
+}
+
+// endregion
