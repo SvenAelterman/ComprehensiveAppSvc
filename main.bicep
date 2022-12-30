@@ -338,12 +338,25 @@ module keyVaultModule 'modules/keyVault/keyVault.bicep' = {
   }
 }
 
+// Deploy a Log Analytics Workspace
 module logModule 'modules/log.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'log'), 64)
   scope: securityRg
   params: {
     location: location
     namingStructure: namingStructure
+    tags: tags
+  }
+}
+
+// Deploy Application Insights
+module appInsightsModule 'modules/appInsights.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'appi'), 64)
+  scope: appsRg
+  params: {
+    location: location
+    appInsightsName: replace(namingStructure, '{rtype}', 'appi')
+    logAnalyticsWorkspaceId: logModule.outputs.workspaceId
     tags: tags
   }
 }
