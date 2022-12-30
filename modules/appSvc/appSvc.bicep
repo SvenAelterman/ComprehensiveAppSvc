@@ -1,8 +1,6 @@
 param webAppName string
 param location string
 param subnetId string
-param dockerImageAndTag string
-param crLoginServer string
 param appSvcPlanId string
 @description('The required FedRAMP logs will be sent to this workspace.')
 param logAnalyticsWorkspaceId string
@@ -14,8 +12,7 @@ param appInsights object = {}
 
 param allowAccessSubnetIds array = []
 
-var linuxFx = 'DOCKER|${crLoginServer}/${dockerImageAndTag}'
-var appSvcKind = 'app,linux,container'
+var linuxFx = 'NODE|16-lts'
 
 var hiddenRelatedTag = {
   'hidden-related:${appSvcPlanId}': 'empty'
@@ -23,28 +20,15 @@ var hiddenRelatedTag = {
 // Merge the hidden tag with the parameter values
 var actualTags = union(tags, hiddenRelatedTag)
 
-// Create an application setting for the Container Registry URL
-var dockerRegistryServerUrlSetting = {
-  DOCKER_REGISTRY_SERVER_URL: 'https://${crLoginServer}'
-}
-
 var appInsightsInstrumentationKeySetting = (!empty(appInsights)) ? {
   APPINSIGHTS_INSTRUMENTATIONKEY: appInsights.instrumentationKey
-  APPINSIGHTS_PROFILERFEATURE_VERSION: '1.0.0'
-  APPINSIGHTS_SNAPSHOTFEATURE_VERSION: '1.0.0'
-  APPLICATIONINSIGHTS_CONFIGURATION_CONTENT: ''
   APPLICATIONINSIGHTS_CONNECTION_STRING: appInsights.connectionString
   ApplicationInsightsAgent_EXTENSION_VERSION: '~3'
-  DiagnosticServices_EXTENSION_VERSION: '~3'
-  InstrumentationEngine_EXTENSION_VERSION: 'disabled'
-  SnapshotDebugger_EXTENSION_VERSION: 'disabled'
-  XDT_MicrosoftApplicationInsights_BaseExtensions: 'disabled'
-  XDT_MicrosoftApplicationInsights_Mode: 'disabled'
-  XDT_MicrosoftApplicationInsights_PreemptSdk: 'disabled'
+  XDT_MicrosoftApplicationInsights_Mode: 'default'
 } : {}
 
 // Merge the setting with the parameter values
-var actualAppSettings = union(appSettings, dockerRegistryServerUrlSetting, appInsightsInstrumentationKeySetting)
+var actualAppSettings = union(appSettings, appInsightsInstrumentationKeySetting)
 
 // Define the IP security restrictions for the App Service
 var ipSecurityRestrictions = [for (subnetId, i) in allowAccessSubnetIds: {
@@ -61,11 +45,9 @@ resource appSvc 'Microsoft.Web/sites@2022-03-01' = {
     // Create a system assigned managed identity to read Key Vault secrets and pull container images
     type: 'SystemAssigned'
   }
-  kind: appSvcKind
   properties: {
     serverFarmId: appSvcPlanId
     virtualNetworkSubnetId: subnetId
-    vnetImagePullEnabled: true
     vnetRouteAllEnabled: true // This is the default value
     httpsOnly: true
     keyVaultReferenceIdentity: 'SystemAssigned'
@@ -100,13 +82,6 @@ resource appSvc 'Microsoft.Web/sites@2022-03-01' = {
   tags: actualTags
 }
 
-// Enable the Application Insights site extension
-// Extensions are not supported in App Service for Containers
-resource appServiceSiteExtension 'Microsoft.Web/sites/siteextensions@2022-03-01' = if (!empty(appInsights) && appSvcKind != 'app,linux,container') {
-  parent: appSvc
-  name: 'Microsoft.ApplicationInsights.AzureWebSites'
-}
-
 var appServiceLogCategories = [
   'AppServiceHttpLogs'
   'AppServiceConsoleLogs'
@@ -117,7 +92,7 @@ var appServiceLogCategories = [
 ]
 
 resource diagnosticLogs 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
-  name: 'Required FedRAMP logging - ${appSvc.name}'
+  name: 'Logging - ${appSvc.name}'
   scope: appSvc
   properties: {
     workspaceId: logAnalyticsWorkspaceId

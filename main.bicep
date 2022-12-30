@@ -361,6 +361,37 @@ module appInsightsModule 'modules/appInsights.bicep' = {
   }
 }
 
+var appSvcAllowedSubnetIds = [
+  networkModule.outputs.createdSubnets.appgw.id
+]
+
+var actualAllowAccessSubnetIds = concat(appSvcAllowedSubnetIds, defaultSubnetIdArray)
+
+// Deploy the App Services
+module appSvcModule 'modules/appSvc/appSvc-main.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'app-main'), 64)
+  scope: appsRg
+  params: {
+    location: location
+    apiAppSettings: apiAppSettings
+    webAppSettings: webAppSettings
+    deploymentNameStructure: deploymentNameStructure
+    keyVaultName: keyVaultModule.outputs.keyVaultName
+    kvResourceGroupName: securityRg.name
+    logAnalyticsWorkspaceId: logModule.outputs.workspaceId
+    namingStructure: namingStructure
+    subnetId: networkModule.outputs.createdSubnets.apps.id
+    appInsights: {
+      instrumentationKey: appInsightsModule.outputs.instrumentationKey
+      connectionString: appInsightsModule.outputs.connectionString
+    }
+    allowAccessSubnetIds: actualAllowAccessSubnetIds
+    tags: tags
+  }
+}
+
 module rolesModule 'common-modules/roles.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'roles'), 64)
 }
+
+// TODO: Developer role assignments
