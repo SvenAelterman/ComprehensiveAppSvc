@@ -5,14 +5,16 @@ param subnetId string
 
 @description('Array of custom objects: { name: "for use in resource names", appSvcName: "", hostName: "URL", customProbePath: "/path/to/health/endpoint" }')
 param backendAppSvcs array
+@description('The name of the resource group where the App Services live.')
 param appsRgName string
 
 param tags object = {}
+@description('Set to true if you want the Application Gateway to redirect HTTP requests to the respective HTTPS listener. Requires tlsConfiguration.')
 param createHttpRedirectRoutingRules bool = true
-@description('{ certificateSecretId: string, certificateName: string }')
+@description('TLS certificate information required to configure HTTPS listeners: { certificateSecretId: string, certificateName: string }')
 param tlsConfiguration object = {}
 
-// Retrieve existing App Service instances
+// Retrieve existing App Service instances (ensure they exist)
 resource appsRg 'Microsoft.Resources/resourceGroups@2021-04-01' existing = {
   name: appsRgName
   scope: subscription()
@@ -47,18 +49,21 @@ var routingRuleNamePrefix = 'rr-'
 var httpListenerNamePrefix = 'l-http'
 var healthProbeNamePrefix = 'hp-'
 var redirectNamePrefix = 'redirect-'
+// endregion
+
+// Always enable HTTPS and HTTP
+// No harm in defining an unused port if TLS is not configured or HTTP-to-HTTPS redirects are not configured
+// LATER: But it's nicer if it's not there. Only create 80 and/or 443 if needed.
 var frontendPorts = [
   80
   443
 ]
-// endregion
 
 var configureTls = !empty(tlsConfiguration)
 
-// If HTTP (to HTTPS) redirect rules are needed, double the number of routing rules
+// If HTTP (to HTTPS) redirect rules are needed, double the number of routing rules and listeners
 var actualCreateHttpRedirectRoutingRules = configureTls && createHttpRedirectRoutingRules
 var multiplier = actualCreateHttpRedirectRoutingRules ? 2 : 1
-//var listenerMultiplier = actualCreateHttpRedirectRoutingRules ? 1 : 2
 
 // Determine which back ends need custom health probes and create an array
 var probesArray = [for appSvc in backendAppSvcs: !empty(appSvc.customProbePath) ? {
@@ -72,20 +77,6 @@ var probesArray = [for appSvc in backendAppSvcs: !empty(appSvc.customProbePath) 
   }
 } : {}]
 var actualProbesArray = filter(probesArray, p => !empty(p))
-
-// Creates redirect configurations
-var redirectConfigurationArray = [for backend in backendAppSvcs: (actualCreateHttpRedirectRoutingRules) ? {
-  name: '${redirectNamePrefix}${backend.name}'
-  properties: {
-    includePath: true
-    includeQueryString: true
-    redirectType: 'Permanent'
-    targetListener: {
-      id: '${httpListenerNamePrefix}s-${backend.name}'
-    }
-  }
-} : {}]
-var actualRedirectConfigurationArray = filter(redirectConfigurationArray, r => !empty(r))
 
 resource appGw 'Microsoft.Network/applicationGateways@2022-05-01' = {
   name: appGwName
@@ -194,7 +185,7 @@ resource appGw 'Microsoft.Network/applicationGateways@2022-05-01' = {
         frontendPort: {
           id: resourceId('Microsoft.Network/applicationGateways/frontendPorts', appGwName, '${frontendPortNamePrefix}${configureTls ? '443' : '80'}')
         }
-        hostName: (i < length(backendAppSvcs)) ? backendAppSvcs[i].hostName : backendAppSvcs[i - length(backendAppSvcs)].hostName
+        hostName: backendAppSvcs[i].hostName
         // This is an HTTPS listener if we're configuring TLS; otherwise, HTTP
         protocol: 'Http${configureTls ? 's' : ''}'
         // If we're configuring TLS, this listener needs a reference to the Key Vault TLS certificate
@@ -204,7 +195,7 @@ resource appGw 'Microsoft.Network/applicationGateways@2022-05-01' = {
       }
     } : {
       // If we create more listeners than backends, the second set are HTTP listeners to enable redirect
-      name: '${httpListenerNamePrefix}-${backendAppSvcs[i].name}'
+      name: '${httpListenerNamePrefix}-${backendAppSvcs[i - length(backendAppSvcs)].name}'
       properties: {
         frontendIPConfiguration: {
           id: resourceId('Microsoft.Network/applicationGateways/frontendIPConfigurations', appGwName, frontendIpName)
@@ -218,8 +209,17 @@ resource appGw 'Microsoft.Network/applicationGateways@2022-05-01' = {
         protocol: 'Http'
       }
     }]
-    // Redirect configuration array is populated if needed
-    redirectConfigurations: actualRedirectConfigurationArray
+    redirectConfigurations: [for backend in backendAppSvcs: (actualCreateHttpRedirectRoutingRules) ? {
+      name: '${redirectNamePrefix}${backend.name}'
+      properties: {
+        includePath: true
+        includeQueryString: true
+        redirectType: 'Permanent'
+        targetListener: {
+          id: resourceId('Microsoft.Network/applicationGateways/httpListeners', appGwName, '${httpListenerNamePrefix}s-${backend.name}')
+        }
+      }
+    } : {}]
     // Create at least one routing rule per App Service
     // Create a second set of routing rules if we're creating HTTP redirects
     requestRoutingRules: [for i in range(0, length(backendAppSvcs) * multiplier): {

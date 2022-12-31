@@ -31,7 +31,7 @@ param dbAdminPassword string
 // Application Gateway parameters
 param configureAppGwTls bool = true
 param kvCertificateName string = ''
-param createHttpRedirectRoutingRules bool = false
+param createHttpRedirectRoutingRules bool = true
 // This is the ID of the secret, not a secret itself
 #disable-next-line secure-secrets-in-params
 param kvCertificateSecretId string = ''
@@ -419,7 +419,7 @@ var backends = [
     appSvcName: appSvcModule.outputs.apiAppSvcName
     hostName: apiHostName
     // TODO: Change based on developer input
-    customProbePath: '/health-status'
+    customProbePath: '/hostingstart.html'
   }
   {
     name: 'web'
