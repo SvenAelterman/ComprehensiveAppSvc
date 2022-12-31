@@ -2,7 +2,7 @@
 
 These set of templates deploy the resources in the architecture diagram below:
 
-![Architecture Diagram](docs/Wellness%20architecture.png)
+![Architecture Diagram](docs/architecture.png)
 
 ## Usage
 
@@ -16,7 +16,7 @@ This PowerShell script will deploy your main.bicep template.
 
 ### contoso-com.pfx
 
-This is a sample TLS certificate file for importing in Key Vault if TLS configuration for Application Gateway is desired, but not PFX is readily available. It is a self-signed certificate with password `Azure123456!`.
+This is a sample TLS certificate file for importing in Key Vault if TLS configuration for Application Gateway is desired, but a custom PFX is not readily available. It is a self-signed certificate with password `Azure123456!`.
 
 ### common-modules
 

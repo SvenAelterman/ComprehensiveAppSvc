@@ -561,3 +561,5 @@ module uamiOperatorRoleAssignmentModule 'common-modules/roleAssignments/roleAssi
 }
 
 // endregion
+
+output appGwPublicIpAddress string = appGwModule.outputs.publicIpAddress

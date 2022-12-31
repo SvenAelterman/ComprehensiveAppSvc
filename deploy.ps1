@@ -104,13 +104,15 @@ if ($ImportPfx -And $PfxFilePath.Length -gt 0) {
 			$Cert = Import-AzKeyVaultCertificate -VaultName $KeyVaultName -Name $KeyVaultCertificateName -FilePath $PfxFilePath -Password $PfxFilePassword
 		}
 		else {
+			# LATER: Determine if it's the same cert based on thumbprint of the PFX file
 			Write-Verbose "Demo certificate already exists in Key Vault."
 		}
 
 		$CertSecretArray = $Cert.SecretId.Split('/')
+		# Don't use the secret version for App Gateway, so it will automatically get a new version of the certificate
 		$CertificateSecretId = $CertSecretArray[0..($CertSecretArray.Count - 1)] -Join '/'
 		$CertificateName = $Cert.Name
-		Write-Verbose "Using certificate info '$($CertificateName): $CertificateSecretId'"
+		Write-Verbose "Using certificate info '$($CertificateName): $CertificateSecretId' (thumbprint: $($Cert.Thumbprint))"
 	}
 }
 
@@ -156,4 +158,8 @@ $DeploymentResult
 
 if ($DeploymentResult.ProvisioningState -eq 'Succeeded') {
 	Write-Host "🔥 Azure Resource Manager deployment successful!"
+
+	$AppGwPublicIpAddress = $DeploymentResult.Outputs.appGwPublicIpAddress.Value
+	Write-Host "`nFor a quick test, modify your HOSTS file and add the following two entries:`n$($AppGwPublicIpAddress)`t$($ApiHostName)`n$($AppGwPublicIpAddress)`t$($WebHostName)"
+	Write-Host "`n(If you used a self-signed certificate, expect certificate warnings from your browser.)"
 }

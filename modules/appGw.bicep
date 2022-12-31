@@ -253,3 +253,4 @@ resource appGw 'Microsoft.Network/applicationGateways@2022-05-01' = {
 }
 
 output appGwName string = appGwName
+output publicIpAddress string = pip.properties.ipAddress
