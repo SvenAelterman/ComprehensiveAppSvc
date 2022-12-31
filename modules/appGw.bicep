@@ -9,6 +9,8 @@ param appsRgName string
 
 param tags object = {}
 param createHttpRedirectRoutingRules bool = true
+@description('{ certificateSecretId: string, certificateName: string }')
+param tlsConfiguration object = {}
 
 // Retrieve existing App Service instances
 resource appsRg 'Microsoft.Resources/resourceGroups@2021-04-01' existing = {
@@ -42,16 +44,21 @@ var frontendIpName = 'appGwPublicFrontendIp'
 var frontendPortNamePrefix = 'Public'
 var backendAddressPoolNamePrefix = 'be-'
 var routingRuleNamePrefix = 'rr-'
-var httpListenerNamePrefix = 'l-http-'
+var httpListenerNamePrefix = 'l-http'
 var healthProbeNamePrefix = 'hp-'
+var redirectNamePrefix = 'redirect-'
 var frontendPorts = [
   80
   443
 ]
 // endregion
 
+var configureTls = !empty(tlsConfiguration)
+
 // If HTTP (to HTTPS) redirect rules are needed, double the number of routing rules
-var routingRulesMultiplier = createHttpRedirectRoutingRules ? 2 : 1
+var actualCreateHttpRedirectRoutingRules = configureTls && createHttpRedirectRoutingRules
+var multiplier = actualCreateHttpRedirectRoutingRules ? 2 : 1
+//var listenerMultiplier = actualCreateHttpRedirectRoutingRules ? 1 : 2
 
 // Determine which back ends need custom health probes and create an array
 var probesArray = [for appSvc in backendAppSvcs: !empty(appSvc.customProbePath) ? {
@@ -66,6 +73,20 @@ var probesArray = [for appSvc in backendAppSvcs: !empty(appSvc.customProbePath) 
 } : {}]
 var actualProbesArray = filter(probesArray, p => !empty(p))
 
+// Creates redirect configurations
+var redirectConfigurationArray = [for backend in backendAppSvcs: (actualCreateHttpRedirectRoutingRules) ? {
+  name: '${redirectNamePrefix}${backend.name}'
+  properties: {
+    includePath: true
+    includeQueryString: true
+    redirectType: 'Permanent'
+    targetListener: {
+      id: '${httpListenerNamePrefix}s-${backend.name}'
+    }
+  }
+} : {}]
+var actualRedirectConfigurationArray = filter(redirectConfigurationArray, r => !empty(r))
+
 resource appGw 'Microsoft.Network/applicationGateways@2022-05-01' = {
   name: appGwName
   location: location
@@ -79,6 +100,7 @@ resource appGw 'Microsoft.Network/applicationGateways@2022-05-01' = {
     enableHttp2: true
     sslPolicy: {
       policyName: 'AppGwSslPolicy20220101'
+      policyType: 'Predefined'
     }
 
     sku: {
@@ -122,6 +144,15 @@ resource appGw 'Microsoft.Network/applicationGateways@2022-05-01' = {
         port: port
       }
     }]
+    sslCertificates: configureTls ? [
+      {
+        name: tlsConfiguration.certificateName
+        properties: {
+          keyVaultSecretId: tlsConfiguration.certificateSecretId
+        }
+      }
+    ] : []
+    // Create one backend address pool for each App Service
     backendAddressPools: [for (appSvc, i) in backendAppSvcs: {
       name: '${backendAddressPoolNamePrefix}${appSvc.name}'
       properties: {
@@ -132,9 +163,12 @@ resource appGw 'Microsoft.Network/applicationGateways@2022-05-01' = {
         ]
       }
     }]
+    // Create one backend HTTP setting for each App Service
+    // Technically, App Services with the same health probe path could use the same setting, but that's too difficult to determine in a template
+    // The backends are Azure App Services, so they always support HTTPS (and should probably only allow HTTPS)
     backendHttpSettingsCollection: [for appSvc in backendAppSvcs: {
       name: '${httpSettingsName}${appSvc.name}'
-      // Unfortunately, cannot dynamically add "probe" property, so need to duplicate most of the properties
+      // Unfortunately, cannot dynamically add "probe" property (null is not an accepted value), so need to duplicate most of the properties
       properties: !empty(appSvc.customProbePath) ? {
         port: 443
         protocol: 'Https'
@@ -148,58 +182,71 @@ resource appGw 'Microsoft.Network/applicationGateways@2022-05-01' = {
         pickHostNameFromBackendAddress: true
       }
     }]
-    httpListeners: [for appSvc in backendAppSvcs: {
-      name: '${httpListenerNamePrefix}${appSvc.name}'
+    // Create as many listeners as there are App Services
+    // Create additional listeners (multiplier of 2) IF we're deploying TLS with HTTP-to-HTTPS redirects
+    httpListeners: [for i in range(0, length(backendAppSvcs) * multiplier): (i < length(backendAppSvcs)) ? {
+      // Create HTTPS or HTTP listeners based on the configureTls boolean
+      name: '${httpListenerNamePrefix}${configureTls ? 's' : ''}-${backendAppSvcs[i].name}'
       properties: {
         frontendIPConfiguration: {
           id: resourceId('Microsoft.Network/applicationGateways/frontendIPConfigurations', appGwName, frontendIpName)
         }
         frontendPort: {
+          id: resourceId('Microsoft.Network/applicationGateways/frontendPorts', appGwName, '${frontendPortNamePrefix}${configureTls ? '443' : '80'}')
+        }
+        hostName: (i < length(backendAppSvcs)) ? backendAppSvcs[i].hostName : backendAppSvcs[i - length(backendAppSvcs)].hostName
+        // This is an HTTPS listener if we're configuring TLS; otherwise, HTTP
+        protocol: 'Http${configureTls ? 's' : ''}'
+        // If we're configuring TLS, this listener needs a reference to the Key Vault TLS certificate
+        sslCertificate: configureTls ? {
+          id: resourceId('Microsoft.Network/applicationGateways/sslCertificates', appGwName, tlsConfiguration.certificateName)
+        } : null
+      }
+    } : {
+      // If we create more listeners than backends, the second set are HTTP listeners to enable redirect
+      name: '${httpListenerNamePrefix}-${backendAppSvcs[i].name}'
+      properties: {
+        frontendIPConfiguration: {
+          id: resourceId('Microsoft.Network/applicationGateways/frontendIPConfigurations', appGwName, frontendIpName)
+        }
+        frontendPort: {
+          // Always port 80
           id: resourceId('Microsoft.Network/applicationGateways/frontendPorts', appGwName, '${frontendPortNamePrefix}80')
         }
-        hostName: appSvc.hostName
+        hostName: backendAppSvcs[i - length(backendAppSvcs)].hostName
+        // These are always HTTP listeners
         protocol: 'Http'
       }
     }]
-    // Create two routing rules for each site
-    requestRoutingRules: [for i in range(0, length(backendAppSvcs) * routingRulesMultiplier): {
+    // Redirect configuration array is populated if needed
+    redirectConfigurations: actualRedirectConfigurationArray
+    // Create at least one routing rule per App Service
+    // Create a second set of routing rules if we're creating HTTP redirects
+    requestRoutingRules: [for i in range(0, length(backendAppSvcs) * multiplier): {
       // First length(backendAppSvcs) - 1 iterations create the main routing rules; the second set of iterations create the HTTP redirects if needed
       name: (i < length(backendAppSvcs)) ? '${routingRuleNamePrefix}${backendAppSvcs[i].name}' : '${routingRuleNamePrefix}${backendAppSvcs[i - length(backendAppSvcs)].name}-http-redirect'
       properties: {
         ruleType: 'Basic'
         priority: 100 + i
         httpListener: (i < length(backendAppSvcs)) ? {
-          id: resourceId('Microsoft.Network/applicationGateways/httpListeners', appGwName, '${httpListenerNamePrefix}${backendAppSvcs[i].name}')
+          // This could be the HTTPS listener or the HTTP listener
+          id: resourceId('Microsoft.Network/applicationGateways/httpListeners', appGwName, '${httpListenerNamePrefix}${configureTls ? 's' : ''}-${backendAppSvcs[i].name}')
         } : {
-          id: resourceId('Microsoft.Network/applicationGateways/httpListeners', appGwName, '${httpListenerNamePrefix}${backendAppSvcs[i - length(backendAppSvcs)].name}')
+          // This is always going to be the HTTP listener
+          id: resourceId('Microsoft.Network/applicationGateways/httpListeners', appGwName, '${httpListenerNamePrefix}-${backendAppSvcs[i - length(backendAppSvcs)].name}')
         }
         backendAddressPool: (i < length(backendAppSvcs)) ? {
           id: resourceId('Microsoft.Network/applicationGateways/backendAddressPools', appGwName, '${backendAddressPoolNamePrefix}${backendAppSvcs[i].name}')
-        } : {}
+        } : null
         backendHttpSettings: (i < length(backendAppSvcs)) ? {
           id: resourceId('Microsoft.Network/applicationGateways/backendHttpSettingsCollection', appGwName, '${httpSettingsName}${backendAppSvcs[i].name}')
-        } : {
-          // TODO: New backend Http settings for redirect
-        }
+        } : null
+        redirectConfiguration: (i >= length(backendAppSvcs)) ? {
+          id: resourceId('Microsoft.Network/applicationGateways/redirectConfigurations', appGwName, '${redirectNamePrefix}${backendAppSvcs[i - length(backendAppSvcs)].name}')
+        } : null
       }
-      // Even iterations are the main routing rule; odd iterations for the redirect rule
-      // name: (i % 2 == 0) ? '${routingRuleNamePrefix}${backendAppSvcs[i / 2].name}' : '${routingRuleNamePrefix}${backendAppSvcs[(i / 2) - 1].name}-http-redirect'
-      // properties: {
-      //   ruleType: 'Basic'
-      //   priority: 100 + i
-      //   httpListener: (i % 2 == 0) ? {
-      //     id: resourceId('Microsoft.Network/applicationGateways/httpListeners', appGwName, '${httpListenerNamePrefix}${backendAppSvcs[i / 2].name}')
-      //   } : {}
-      //   backendAddressPool: (i % 2 == 0) ? {
-      //     id: resourceId('Microsoft.Network/applicationGateways/backendAddressPools', appGwName, '${backendAddressPoolNamePrefix}${backendAppSvcs[i / 2].name}')
-      //   } : {}
-      //   backendHttpSettings: (i % 2 == 0) ? {
-      //     id: resourceId('Microsoft.Network/applicationGateways/backendHttpSettingsCollection', appGwName, '${httpSettingsName}${backendAppSvcs[i / 2].name}')
-      //   } : {
-      //     // TODO: New backend Http settings for redirect
-      //   }
-      // }
     }]
+    // For each site that needs a custom probe, the probe array contains a health probe configuration
     probes: actualProbesArray
   }
   tags: tags

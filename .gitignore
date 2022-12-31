@@ -1,1 +1,3 @@
 *.user.ps1
+*.pfx
+!contoso-com.pfx

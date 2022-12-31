@@ -28,6 +28,14 @@ param dbAdminLogin string = 'dbadmin'
 @secure()
 param dbAdminPassword string
 
+// Application Gateway parameters
+param configureAppGwTls bool = true
+param kvCertificateName string = ''
+param createHttpRedirectRoutingRules bool = false
+// This is the ID of the secret, not a secret itself
+#disable-next-line secure-secrets-in-params
+param kvCertificateSecretId string = ''
+
 // App Svc parameters
 @secure()
 param dbAppSvcLogin string
@@ -404,7 +412,7 @@ module appSvcModule 'modules/appSvc/appSvc-main.bicep' = {
   }
 }
 
-// region Deploy the Application Gateway, without TLS
+// region Deploy the Application Gateway, with or without TLS
 var backends = [
   {
     name: 'api'
@@ -454,7 +462,12 @@ module appGwModule 'modules/appGw.bicep' = {
     uamiId: uamiModule.outputs.id
     tags: tags
 
-    createHttpRedirectRoutingRules: false
+    tlsConfiguration: configureAppGwTls ? {
+      certificateName: kvCertificateName
+      certificateSecretId: kvCertificateSecretId
+    } : {}
+
+    createHttpRedirectRoutingRules: configureAppGwTls ? createHttpRedirectRoutingRules : false
   }
   dependsOn: [
     appSvcModule

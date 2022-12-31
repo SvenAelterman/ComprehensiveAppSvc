@@ -14,6 +14,10 @@ This is the template that will be deployed.
 
 This PowerShell script will deploy your main.bicep template.
 
+### contoso-com.pfx
+
+This is a sample TLS certificate file for importing in Key Vault if TLS configuration for Application Gateway is desired, but not PFX is readily available. It is a self-signed certificate with password `Azure123456!`.
+
 ### common-modules
 
 The modules in this folder are modules that contain re-usable outputs.

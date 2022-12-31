@@ -4,6 +4,8 @@ param keyVaultName string
 
 // For virtual network rules
 param allowedSubnetIds array = []
+// For public IP addresses
+param allowedIpAddresses array = []
 
 // Provide if private endpoint is needed
 param privateEndpointSubnetId string = ''
@@ -30,10 +32,13 @@ resource keyVault 'Microsoft.KeyVault/vaults@2022-07-01' = {
     tenantId: subscription().tenantId
     networkAcls: {
       bypass: 'AzureServices'
-      defaultAction: (empty(allowedSubnetIds) && empty(privateEndpointSubnetId)) ? 'Allow' : 'Deny'
+      defaultAction: (empty(allowedSubnetIds) && empty(privateEndpointSubnetId) && empty(allowedIpAddresses)) ? 'Allow' : 'Deny'
       virtualNetworkRules: [for subnet in allowedSubnetIds: {
         id: subnet
         ignoreMissingVnetServiceEndpoint: false
+      }]
+      ipRules: [for ip in allowedIpAddresses: {
+        value: ip
       }]
     }
     publicNetworkAccess: allowPublicAccess ? 'Enabled' : 'Disabled'

@@ -52,8 +52,67 @@ Param(
 	[bool]$IntuneMdmRegister = $true,
 	[bool]$DeveloperVmLoginAsAdmin = $false,
 	[Parameter(Mandatory)]
-	[string]$VMComputerName
+	[string]$VMComputerName,
+	[securestring]$PfxFilePassword = (ConvertTo-SecureString -AsPlainText -Force 'Azure123456!'),
+	[bool]$ImportPfx = $false,
+	[string]$PfxFilePath = 'contoso-com.pfx',
+	[string]$KeyVaultCertificateName = 'demo-certificate'
 )
+
+Select-AzSubscription $TargetSubscription
+
+[string]$CertificateSecretId = ''
+[string]$CertificateName = ''
+
+# If a certificate needs to be imported to help configure the Application Gateway
+if ($ImportPfx -And $PfxFilePath.Length -gt 0) {
+	# Find the current public IP of the system to allow access to Key Vault
+	$CurrentHostIpAddress = (Invoke-WebRequest -uri "https://api.ipify.org/").Content
+	Write-Warning "`nEnabling access to Key Vault from IP '$CurrentHostIpAddress'. This will be removed during the next deployment but if the next deployment fails, you'll need to reconfigure the Key Vault network restrictions manually.`n".ToUpper()
+
+	# Find the AAD Object ID of the Azure context to enable access to KV
+	$CertificatesOfficerPrincipalId = (Get-AzContext).Account.ExtendedProperties.HomeAccountId.Split('.')[0]
+
+	# The Key Vault must be created now instead of in main.bicep
+	$KvOnlyTemplateParameters = @{
+		# REQUIRED
+		location                       = $Location
+		environment                    = $Environment
+		workloadName                   = $WorkloadName
+		kvAllowedIpAddress             = $CurrentHostIpAddress
+		certificatesOfficerPrincipalId = $CertificatesOfficerPrincipalId
+
+		# OPTIONAL
+		sequence                       = $Sequence
+		namingConvention               = $NamingConvention
+		tags                           = $Tags
+	}
+
+	$KeyVaultDeploymentResult = New-AzDeployment -Location $Location -Name "$WorkloadName-$Environment-KvOnly-$(Get-Date -Format 'yyyyMMddThhmmssZ' -AsUTC)" `
+		-TemplateFile ".\main-kvonly.bicep" -TemplateParameterObject $KvOnlyTemplateParameters
+
+	$KeyVaultDeploymentResult
+
+	if ($KeyVaultDeploymentResult.ProvisioningState -eq 'Succeeded') {
+		# Use PowerShell to import the PFX file
+		$KeyVaultName = $KeyVaultDeploymentResult.Outputs.keyVaultName.Value
+
+		$Cert = Get-AzKeyVaultCertificate -VaultName $KeyVaultName -Name $KeyVaultCertificateName
+
+		if (! $Cert) {
+			Write-Verbose "Adding demo certificate to Key Vault..."
+			$Cert = Import-AzKeyVaultCertificate -VaultName $KeyVaultName -Name $KeyVaultCertificateName -FilePath $PfxFilePath -Password $PfxFilePassword
+		}
+		else {
+			Write-Verbose "Demo certificate already exists in Key Vault."
+		}
+
+		$CertSecretArray = $Cert.SecretId.Split('/')
+		$CertificateSecretId = $CertSecretArray[0..($CertSecretArray.Count - 1)] -Join '/'
+		$CertificateName = $Cert.Name
+		Write-Verbose "Using certificate info '$($CertificateName): $CertificateSecretId'"
+	}
+}
 
 $TemplateParameters = @{
 	# REQUIRED
@@ -76,6 +135,9 @@ $TemplateParameters = @{
 	intuneMdmRegister         = $IntuneMdmRegister
 	developerVmLoginAsAdmin   = $DeveloperVmLoginAsAdmin
 	VMComputerName            = $VMComputerName
+	kvCertificateSecretId     = $CertificateSecretId
+	kvCertificateName         = $CertificateName
+	configureAppGwTls         = ($CertificateName.Length -gt 0)
 
 	# OPTIONAL
 	developerPrincipalId      = $DeveloperPrincipalId
@@ -86,8 +148,6 @@ $TemplateParameters = @{
 	namingConvention          = $NamingConvention
 	tags                      = $Tags
 }
-
-Select-AzSubscription $TargetSubscription
 
 $DeploymentResult = New-AzDeployment -Location $Location -Name "$WorkloadName-$Environment-$(Get-Date -Format 'yyyyMMddThhmmssZ' -AsUTC)" `
 	-TemplateFile ".\main.bicep" -TemplateParameterObject $TemplateParameters
