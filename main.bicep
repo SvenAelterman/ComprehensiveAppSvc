@@ -161,6 +161,12 @@ var subnets = {
           '*'
         ]
       }
+      {
+        service: 'Microsoft.KeyVault'
+        locations: [
+          '*'
+        ]
+      }
     ]
     delegation: ''
     securityRules: loadJsonContent('content/nsgrules/appGw.json')
@@ -337,6 +343,7 @@ module keyVaultNameModule 'common-modules/shortname.bicep' = {
 // Determine which subnets to allow access to the KV via virtual network rules
 var kvAllowedSubnetIds = [
   networkModule.outputs.createdSubnets.apps.id
+  networkModule.outputs.createdSubnets.appgw.id
 ]
 var defaultSubnetIdArray = deployDefaultSubnet ? [
   networkModule.outputs.createdSubnets.default.id
