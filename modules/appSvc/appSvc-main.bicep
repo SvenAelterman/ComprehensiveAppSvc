@@ -126,3 +126,5 @@ output apiAppSvcPrincipalId string = apiAppSvcModule.outputs.principalId
 output webAppSvcPrincipalId string = webAppSvcModule.outputs.principalId
 output apiAppSvcName string = apiAppName
 output webAppSvcName string = webAppName
+output apiCustomDomainVerificationId string = apiAppSvcModule.outputs.customDomainVerificationId
+output webCustomDomainVerificationId string = webAppSvcModule.outputs.customDomainVerificationId

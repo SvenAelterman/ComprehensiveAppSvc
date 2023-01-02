@@ -112,3 +112,4 @@ resource diagnosticLogs 'Microsoft.Insights/diagnosticSettings@2021-05-01-previe
 output appSvcName string = appSvc.name
 output principalId string = appSvc.identity.principalId
 output actualIpSecurityRestrictions array = ipSecurityRestrictions
+output customDomainVerificationId string = appSvc.properties.customDomainVerificationId

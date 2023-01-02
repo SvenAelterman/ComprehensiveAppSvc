@@ -168,4 +168,20 @@ if ($DeploymentResult.ProvisioningState -eq 'Succeeded') {
 	$AppGwPublicIpAddress = $DeploymentResult.Outputs.appGwPublicIpAddress.Value
 	Write-Host "`nFor a quick test, modify your HOSTS file and add the following two entries:`n$($AppGwPublicIpAddress)`t$($ApiHostName)`n$($AppGwPublicIpAddress)`t$($WebHostName)"
 	Write-Host "`n(If you used a self-signed certificate, expect certificate warnings from your browser.)"
+
+	[string]$ApiDomainVerificationId = $DeploymentResult.Outputs.apiCustomDomainVerificationId.Value
+	[string]$WebDomainVerificationId = $DeploymentResult.Outputs.webCustomDomainVerificationId.Value
+
+	[string]$SplitRegex = '^(.+?)(\.)(.+)'
+	$ApiHostName -match $SplitRegex
+	[string]$DomainName = $Matches[3]
+	[string]$ApiHostNameOnly = $Matches[1]
+	$WebHostName -match $SplitRegex
+	[string]$WebHostNameOnly = $Matches[1]
+	
+	Write-Host "`nTo enable App Service custom domain name verification, create the following entries in the DNS for domain '$DomainName':"
+	Write-Host "`tasuid.$ApiHostNameOnly`tTXT`t$ApiDomainVerificationId"
+	Write-Host "`tasuid.$WebHostNameOnly`tTXT`t$WebDomainVerificationId`n"
+
+	Write-Warning "`nManual steps:`n`t- Update HOSTS file, if desired (see output above)`n`t- Create database user for API app`n`t- Set custom domain names for App Services and then update the HTTP settings to remove the host name override`n"
 }

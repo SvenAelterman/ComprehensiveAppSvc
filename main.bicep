@@ -686,3 +686,5 @@ module redisContributorRoleAssignmentModule 'common-modules/roleAssignments/role
 // endregion
 
 output appGwPublicIpAddress string = appGwModule.outputs.publicIpAddress
+output apiCustomDomainVerificationId string = appSvcModule.outputs.apiCustomDomainVerificationId
+output webCustomDomainVerificationId string = appSvcModule.outputs.webCustomDomainVerificationId
