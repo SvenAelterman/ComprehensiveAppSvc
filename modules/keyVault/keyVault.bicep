@@ -63,7 +63,7 @@ resource peRg 'Microsoft.Resources/resourceGroups@2021-04-01' existing = if (!em
   scope: subscription()
 }
 
-module pe '../privateEndpoint.bicep' = if (!empty(privateEndpointSubnetId)) {
+module pe '../networking/privateEndpoint.bicep' = if (!empty(privateEndpointSubnetId)) {
   name: 'kv-pe'
   scope: peRg
   params: {

@@ -114,7 +114,7 @@ resource appsRg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
 // region Networking
 
 // Create the route table for the Application Gateway subnet
-module rtAppGwModule 'modules/routeTable-appGw.bicep' = {
+module rtAppGwModule 'modules/networking/routeTable-appGw.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'rt-appgw'), 64)
   scope: networkingRg
   params: {
@@ -212,7 +212,7 @@ var azureBastionSubnet = deployBastion ? {
 var subnetsToDeploy = union(subnets, azureBastionSubnet, defaultSubnet)
 
 // Create the basic network resources: Virtual Network + subnets, Network Security Groups
-module networkModule 'modules/network.bicep' = {
+module networkModule 'modules/networking/network.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'network'), 64)
   scope: networkingRg
   params: {
@@ -247,7 +247,7 @@ module mySqlServerNameModule 'common-modules/shortname.bicep' = {
   }
 }
 
-module mySqlPrivateDnsZoneModule 'modules/privateDnsZone.bicep' = {
+module mySqlPrivateDnsZoneModule 'modules/networking/privateDnsZone.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'dns-zone-mysql'), 64)
   scope: networkingRg
   params: {
@@ -255,7 +255,7 @@ module mySqlPrivateDnsZoneModule 'modules/privateDnsZone.bicep' = {
   }
 }
 
-module mySqlPrivateDnsZoneLinkModule 'modules/privateDnsZoneVNetLink.bicep' = {
+module mySqlPrivateDnsZoneLinkModule 'modules/networking/privateDnsZoneVNetLink.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'dns-zone-link-mysql'), 64)
   scope: networkingRg
   params: {
@@ -267,7 +267,7 @@ module mySqlPrivateDnsZoneLinkModule 'modules/privateDnsZoneVNetLink.bicep' = {
 // endregion
 
 // Create a Bastion resource to access the management VM
-module bastionModule 'modules/bastion.bicep' = {
+module bastionModule 'modules/networking/bastion.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'bas'), 64)
   scope: networkingRg
   params: {
@@ -457,7 +457,7 @@ module uamiKvRoleAssignmentModule 'common-modules/roleAssignments/roleAssignment
   }
 }
 
-module appGwModule 'modules/appGw.bicep' = {
+module appGwModule 'modules/networking/appGw.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'appgw'), 64)
   scope: networkingRg
   params: {
