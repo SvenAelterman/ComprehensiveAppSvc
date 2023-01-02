@@ -56,7 +56,10 @@ Param(
 	[securestring]$PfxFilePassword = (ConvertTo-SecureString -AsPlainText -Force 'Azure123456!'),
 	[bool]$ImportPfx = $false,
 	[string]$PfxFilePath = 'contoso-com.pfx',
-	[string]$KeyVaultCertificateName = 'demo-certificate'
+	[string]$KeyVaultCertificateName = 'demo-certificate',
+	[bool]$DeployRedis = $false,
+	[string]$CoreSubscriptionId = '',
+	[string]$CoreDnsZoneResourceGroupName = ''
 )
 
 Select-AzSubscription $TargetSubscription
@@ -118,37 +121,40 @@ if ($ImportPfx -And $PfxFilePath.Length -gt 0) {
 
 $TemplateParameters = @{
 	# REQUIRED
-	location                  = $Location
-	environment               = $Environment
-	workloadName              = $WorkloadName
+	location                     = $Location
+	environment                  = $Environment
+	workloadName                 = $WorkloadName
 
-	mySqlVersion              = $MySQLVersion
-	databaseName              = $DatabaseName
-	dbAdminPassword           = $DbAdminPassword
-	dbAppsvcLogin             = $DbAppSvcLogin
-	dbAppSvcPassword          = $DbAppSvcPassword
-	vNetAddressSpaceOctet4Min = $VNetAddressSpaceOctet4Min
-	vNetAddressSpace          = $VNetAddressSpace
-	vNetCidr                  = $VNetCidr
-	subnetCidr                = $SubnetCidr
-	apiHostName               = $ApiHostName
-	webHostName               = $WebHostName
-	vmLocalPassword           = $VmLocalPassword
-	intuneMdmRegister         = $IntuneMdmRegister
-	developerVmLoginAsAdmin   = $DeveloperVmLoginAsAdmin
-	VMComputerName            = $VMComputerName
-	kvCertificateSecretId     = $CertificateSecretId
-	kvCertificateName         = $CertificateName
-	configureAppGwTls         = ($CertificateName.Length -gt 0)
+	mySqlVersion                 = $MySQLVersion
+	databaseName                 = $DatabaseName
+	dbAdminPassword              = $DbAdminPassword
+	dbAppsvcLogin                = $DbAppSvcLogin
+	dbAppSvcPassword             = $DbAppSvcPassword
+	vNetAddressSpaceOctet4Min    = $VNetAddressSpaceOctet4Min
+	vNetAddressSpace             = $VNetAddressSpace
+	vNetCidr                     = $VNetCidr
+	subnetCidr                   = $SubnetCidr
+	apiHostName                  = $ApiHostName
+	webHostName                  = $WebHostName
+	vmLocalPassword              = $VmLocalPassword
+	intuneMdmRegister            = $IntuneMdmRegister
+	developerVmLoginAsAdmin      = $DeveloperVmLoginAsAdmin
+	VMComputerName               = $VMComputerName
+	kvCertificateSecretId        = $CertificateSecretId
+	kvCertificateName            = $CertificateName
+	configureAppGwTls            = ($CertificateName.Length -gt 0)
 
 	# OPTIONAL
-	developerPrincipalId      = $DeveloperPrincipalId
-	apiAppSettings            = $ApiAppSettings
-	webAppSettings            = $WebAppSettings
+	developerPrincipalId         = $DeveloperPrincipalId
+	apiAppSettings               = $ApiAppSettings
+	webAppSettings               = $WebAppSettings
+	deployRedis                  = $DeployRedis
+	coreSubscriptionId           = $CoreSubscriptionId
+	coreDnsZoneResourceGroupName = $CoreDnsZoneResourceGroupName
 
-	sequence                  = $Sequence
-	namingConvention          = $NamingConvention
-	tags                      = $Tags
+	sequence                     = $Sequence
+	namingConvention             = $NamingConvention
+	tags                         = $Tags
 }
 
 $DeploymentResult = New-AzDeployment -Location $Location -Name "$WorkloadName-$Environment-$(Get-Date -Format 'yyyyMMddThhmmssZ' -AsUTC)" `

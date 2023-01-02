@@ -64,6 +64,11 @@ param subnetCidr int
 @description('AAD principal that will be assigned permissions to App Svc, App GW, etc. (optional).')
 param developerPrincipalId string = ''
 
+// Redis parameters
+param deployRedis bool = false
+param coreSubscriptionId string = ''
+param coreDnsZoneResourceGroupName string = ''
+
 // Optional parameters
 param deployDefaultSubnet bool = true
 param deployBastion bool = true
@@ -501,6 +506,52 @@ module rolesModule 'common-modules/roles.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'roles'), 64)
 }
 
+// region Azure Cache for Redis
+
+// Create DNS zone in the core subscription
+resource coreDnsZoneRg 'Microsoft.Resources/resourceGroups@2022-09-01' existing = if (deployRedis) {
+  name: coreDnsZoneResourceGroupName
+  scope: subscription(coreSubscriptionId)
+}
+
+module corePrivateDnsZoneModule 'modules/networking/privateDnsZone.bicep' = if (deployRedis) {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'dns-redis'), 64)
+  scope: coreDnsZoneRg
+  params: {
+    zoneName: 'privatelink.redis.cache.windows.net'
+    tags: tags
+  }
+}
+
+module corePrivateDnsZoneLinkModule 'modules/networking/privateDnsZoneVNetLink.bicep' = if (deployRedis) {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'dns-link-redis'), 64)
+  scope: coreDnsZoneRg
+  params: {
+    dnsZoneName: corePrivateDnsZoneModule.outputs.zoneName
+    vNetId: networkModule.outputs.vNetId
+  }
+}
+
+module redisModule 'modules/redis.bicep' = if (deployRedis) {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'redis'), 64)
+  scope: dataRg
+  params: {
+    location: location
+    deployPrivateEndpoint: true
+    privateDnsZoneId: corePrivateDnsZoneModule.outputs.zoneId
+    privateEndpointSubnetId: networkModule.outputs.createdSubnets.default.id
+    privateEndpointResourceGroupName: networkingRg.name
+    tags: tags
+    namingStructure: namingStructure
+  }
+}
+
+// TODO: Save Redis connection string as secret in Key Vault and reference from API App Service
+
+// endregion
+
+// region Storage Account
+
 module storageAccountShortNameModule 'common-modules/shortname.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'st-name'), 64)
   scope: dataRg
@@ -529,6 +580,8 @@ module storageAccountModule 'modules/storageAccount.bicep' = {
     ]
   }
 }
+
+// endregion
 
 // region Assign RBAC to the developer principal, if it's provided
 
@@ -617,6 +670,16 @@ module storageAccountRoleAssignmentModule 'common-modules/roleAssignments/roleAs
     principalId: developerPrincipalId
     roleDefinitionId: rolesModule.outputs.roles['Storage Blob Data Contributor']
     storageAccountName: storageAccountModule.outputs.storageAccountName
+  }
+}
+
+module redisContributorRoleAssignmentModule 'common-modules/roleAssignments/roleAssignment-redis.bicep' = if (!empty(developerPrincipalId)) {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'role-redis-dev'), 64)
+  scope: dataRg
+  params: {
+    principalId: developerPrincipalId
+    roleDefinitionId: rolesModule.outputs.roles['Redis Cache Contributor']
+    redisCacheName: redisModule.outputs.redisCacheName
   }
 }
 
