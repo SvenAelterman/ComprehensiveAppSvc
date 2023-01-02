@@ -146,6 +146,12 @@ var subnets = {
           '*'
         ]
       }
+      {
+        service: 'Microsoft.Storage'
+        locations: [
+          '*'
+        ]
+      }
     ]
     delegation: 'Microsoft.Web/serverFarms'
     securityRules: []
@@ -188,6 +194,12 @@ var defaultSubnet = deployDefaultSubnet ? {
       // Allow compute resources to access the Key Vault
       {
         service: 'Microsoft.KeyVault'
+        locations: [
+          '*'
+        ]
+      }
+      {
+        service: 'Microsoft.Storage'
         locations: [
           '*'
         ]
@@ -318,6 +330,7 @@ module mySqlModule 'modules/mysql.bicep' = {
     mySqlServerName: mySqlServerNameModule.outputs.shortName
     dnsZoneId: mySqlPrivateDnsZoneModule.outputs.zoneId
     mySqlVersion: mySqlVersion
+    deploymentNameStructure: deploymentNameStructure
     tags: tags
   }
   dependsOn: [
@@ -488,7 +501,37 @@ module rolesModule 'common-modules/roles.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'roles'), 64)
 }
 
+module storageAccountShortNameModule 'common-modules/shortname.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'st-name'), 64)
+  scope: dataRg
+  params: {
+    location: location
+    environment: environment
+    namingConvention: namingConvention
+    resourceType: 'st'
+    sequence: sequence
+    workloadName: workloadName
+  }
+}
+
+module storageAccountModule 'modules/storageAccount.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'st'), 64)
+  scope: dataRg
+  params: {
+    location: location
+    tags: tags
+    blobContainerName: 'media'
+    storageAccountName: storageAccountShortNameModule.outputs.shortName
+    // Required to be specified, even though no private endpoint will be created
+    allowedSubnets: [
+      networkModule.outputs.createdSubnets.default.id
+      networkModule.outputs.createdSubnets.apps.id
+    ]
+  }
+}
+
 // region Assign RBAC to the developer principal, if it's provided
+
 resource readerSubscriptionRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(developerPrincipalId)) {
   name: guid(subscription().id, developerPrincipalId, 'Reader')
   properties: {
@@ -564,6 +607,16 @@ module uamiOperatorRoleAssignmentModule 'common-modules/roleAssignments/roleAssi
     principalId: developerPrincipalId
     roleDefinitionId: rolesModule.outputs.roles['Managed Identity Operator']
     uamiName: uamiModule.outputs.name
+  }
+}
+
+module storageAccountRoleAssignmentModule 'common-modules/roleAssignments/roleAssignment-st.bicep' = if (!empty(developerPrincipalId)) {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'role-st-dev'), 64)
+  scope: dataRg
+  params: {
+    principalId: developerPrincipalId
+    roleDefinitionId: rolesModule.outputs.roles['Storage Blob Data Contributor']
+    storageAccountName: storageAccountModule.outputs.storageAccountName
   }
 }
 

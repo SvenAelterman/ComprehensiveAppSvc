@@ -2,6 +2,7 @@ param location string
 param mySqlServerName string
 param delegateSubnetId string
 param dnsZoneId string
+param deploymentNameStructure string
 param tags object
 
 @secure()
@@ -57,7 +58,7 @@ resource dbConfig 'Microsoft.DBforMySQL/flexibleServers/configurations@2021-12-0
 
 // Deploy a database
 module db 'mysql-db.bicep' = {
-  name: 'db'
+  name: take(replace(deploymentNameStructure, '{rtype}', 'mysql-db'), 64)
   params: {
     mySqlName: mySql.name
     dbName: databaseName
