@@ -3,6 +3,10 @@
 [string]$Location = 'eastus'
 [int]$Sequence = 1
 [string]$TargetSubscription = 'USE YOUR SUBSCRIPTION NAME OR ID'
+[string]$CoreSubscriptionId = 'MUST BE PROVIDED IF DEPLOYING REDIS'
+[string]$CoreDnsZoneResourceGroupName = 'MUST BE PROVIDED IF DEPLOYING REDIS'
+
+[bool]$DeployRedis = $true
 
 [int]$VNetAddressSpaceOctet4Min = 0
 [string]$VNetAddressSpace = '10.0.0.{octet4}'
@@ -61,4 +65,5 @@
 	-DbAdminPassword $DbAdminPassword -DbAppSvcLogin $DbAppSvcLogin -DbAppSvcPassword $DbAppSvcPassword `
 	-DeveloperPrincipalId $DeveloperPrincipalId -IntuneMdmRegister $IntuneMdmRegister -DeveloperVmLoginAsAdmin $DeveloperVmLoginAsAdmin `
 	-VMComputerName $VMComputerName -ImportPfx $ImportPfx -Verbose `
-	-KeyVaultCertificateName $CertificateName -PfxFilePath $PfxFilePath -PfxFilePassword $PfxFilePassword
+	-KeyVaultCertificateName $CertificateName -PfxFilePath $PfxFilePath -PfxFilePassword $PfxFilePassword `
+	-DeployRedis $DeployRedis -CoreSubscriptionId $CoreSubscriptionId -CoreDnsZoneResourceGroupName $CoreDnsZoneResourceGroupName
