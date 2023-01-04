@@ -338,7 +338,7 @@ module vmModule 'modules/vm.bicep' = {
 // endregion
 
 // Create RBAC assignment to allow developers to sign in to the VM
-module loginRoleAssignment 'common-modules/roleAssignments/roleAssignment-rg.bicep' = {
+module loginRoleAssignment 'common-modules/roleAssignments/roleAssignment-rg.bicep' = if (!empty(developerPrincipalId)) {
   name: take(replace(deploymentNameStructure, '{rtype}', 'roles-rg-dev'), 64)
   scope: computeRg
   params: {
