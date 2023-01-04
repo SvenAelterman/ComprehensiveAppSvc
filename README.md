@@ -4,6 +4,8 @@ These set of templates deploy the resources in the architecture diagram below:
 
 ![Architecture Diagram](docs/architecture.png)
 
+*Download a [Visio file](docs/Architecture.vsdx) (.vsdx) of this architecture*
+
 ## Usage
 
 ### main.bicep
@@ -12,7 +14,7 @@ This is the template that will be deployed.
 
 ### deploy.ps1
 
-This PowerShell script will deploy your main.bicep template.
+This PowerShell script will deploy your main.bicep template. It has numerous parameters which will be passed on to main.bicep.
 
 ### contoso-com.pfx
 
@@ -28,6 +30,8 @@ The modules in this folder create the Azure resources. Many have parameters to e
 
 ## Parameters
 
+Review the [deploy.user-sample.ps1](deploy.user-sample.ps1) file for an example of providing parameters to deploy.ps1.
+
 Here are the common parameters defined by the template main.bicep:
 
 * **location**: The Azure region to target for deployments.
@@ -35,7 +39,7 @@ Here are the common parameters defined by the template main.bicep:
 * **workloadName**: The name of the workload to be deployed. This will be used to name deployments and to complete the naming convention.
 * **sequence** (optional, defaults to `1`)
 * **tags** (optional, defaults to none)
-* **namingConvention** (optional, defaults to `{rtype}-{wloadname}-{env}-{loc}-{seq}`): the structure of the Azure resources names. Use placeholders as follows:
+* **namingConvention** (optional, defaults to `{wloadname}-{env}-{rtype}-{loc}-{seq}`): the structure of the Azure resources names. Use placeholders as follows:
   * **{rtype}**: The resource type. Your main.bicep should replace {rtype} with the recommended Azure resource type abbreviation as found at <https://docs.microsoft.com/azure/cloud-adoption-framework/ready/azure-best-practices/resource-abbreviations>.
   * **{wloadname}**: Replaced with the value of the `workloadName` parameter.
   * **{env}**: Replaced with the value of the `environment` parameter.
