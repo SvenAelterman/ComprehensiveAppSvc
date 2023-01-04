@@ -128,7 +128,7 @@ resource aadLoginExtension 'Microsoft.Compute/virtualMachines/extensions@2022-08
     // The setting below is key to enrolling in Intune
     settings: intuneMdmRegister ? {
       mdmId: '0000000a-0000-0000-c000-000000000000'
-    } : {}
+    } : null
   }
 }
 
