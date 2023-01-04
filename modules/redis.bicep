@@ -49,5 +49,9 @@ module pe 'networking/privateEndpoint.bicep' = if (deployPrivateEndpoint) {
 }
 
 output redisCacheName string = redis.name
+// Overriding because we must put the connection string in Key Vault
+// LATER: Consider adding the connection string to Key Vault in this module
+#disable-next-line outputs-should-not-contain-secrets
+output primaryConnectionString string = '${redis.properties.hostName}:${redis.properties.sslPort},password=${listkeys(redis.name, redis.apiVersion).primaryKey},ssl=True,abortConnect=False'
 output customDnsConfigs array = pe.outputs.peCustomDnsConfigs
 output nicIds array = pe.outputs.nicIds

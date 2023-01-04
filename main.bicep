@@ -388,15 +388,23 @@ module keyVaultModule 'modules/keyVault/keyVault.bicep' = {
   }
 }
 
-// Create Key Vault secrets for App Svc as necessary
 // TODO: Add additional secrets from runtime: SendGrid? MAIL_USER, MAIL_PASSWORD
-// TODO: Add Redis connection string
+var additionalApiAppSettingsSecrets = {
+  redisCacheConnectionString: {
+    name: 'REDIS_CACHE_CONNECTION_STRING'
+    value: redisModule.outputs.primaryConnectionString
+  }
+}
+
+var actualApiAppSettingsSecrets = union(apiAppSettingsSecrets, additionalApiAppSettingsSecrets)
+
+// Create Key Vault secrets for App Svc as necessary
 module apiKeyVaultSecretsModule 'modules/keyVault/keyVault-secrets.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'kv-apisecrets'), 64)
   scope: securityRg
   params: {
     keyVaultName: keyVaultModule.outputs.keyVaultName
-    secrets: apiAppSettingsSecrets
+    secrets: actualApiAppSettingsSecrets
     // HIPAA compliance does not require secrets to have an expiration date
     secretValidityPeriod: ''
     secretNamePrefix: 'ApiApp-'
