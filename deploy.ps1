@@ -26,10 +26,6 @@ Param(
 	[Parameter(Mandatory = $true)]
 	[securestring]$DbAdminPassword,
 	[Parameter(Mandatory = $true)]
-	[securestring]$DbAppSvcLogin,
-	[Parameter(Mandatory = $true)]
-	[securestring]$DbAppSvcPassword,
-	[Parameter(Mandatory = $true)]
 	[string]$DatabaseName,
 	[Parameter(Mandatory = $true)]
 	[int]$VNetAddressSpaceOctet4Min,
@@ -47,6 +43,7 @@ Param(
 	[PSCustomObject]$ApiAppSettings = @{},
 	[PSCustomObject]$WebAppSettings = @{},
 	[string]$DeveloperPrincipalId,
+	[string]$VmLocalUserName = 'AzureUser',
 	[Parameter(Mandatory)]
 	[securestring]$VmLocalPassword,
 	[bool]$IntuneMdmRegister = $true,
@@ -59,7 +56,9 @@ Param(
 	[string]$KeyVaultCertificateName = 'demo-certificate',
 	[bool]$DeployRedis = $false,
 	[string]$CoreSubscriptionId = '',
-	[string]$CoreDnsZoneResourceGroupName = ''
+	[string]$CoreDnsZoneResourceGroupName = '',
+	[string]$ApiAppSettingsSecretsFileName = '',
+	[string]$CurrentHostIpAddress = ''
 )
 
 Select-AzSubscription $TargetSubscription
@@ -70,7 +69,10 @@ Select-AzSubscription $TargetSubscription
 # If a certificate needs to be imported to help configure the Application Gateway
 if ($ImportPfx -And $PfxFilePath.Length -gt 0) {
 	# Find the current public IP of the system to allow access to Key Vault
-	$CurrentHostIpAddress = (Invoke-WebRequest -uri "https://api.ipify.org/").Content
+	if ($CurrentHostIpAddress.Length -eq 0) {
+		$CurrentHostIpAddress = (Invoke-WebRequest -Uri "https://api.ipify.org/").Content
+	}
+
 	Write-Warning "`nEnabling access to Key Vault from IP '$CurrentHostIpAddress'. This will be removed during the next deployment but if the next deployment fails, you'll need to reconfigure the Key Vault network restrictions manually.`n".ToUpper()
 
 	# Find the AAD Object ID of the Azure context to enable access to KV
@@ -103,12 +105,12 @@ if ($ImportPfx -And $PfxFilePath.Length -gt 0) {
 		$Cert = Get-AzKeyVaultCertificate -VaultName $KeyVaultName -Name $KeyVaultCertificateName
 
 		if (! $Cert) {
-			Write-Verbose "Adding demo certificate to Key Vault..."
+			Write-Verbose "Adding certificate to Key Vault..."
 			$Cert = Import-AzKeyVaultCertificate -VaultName $KeyVaultName -Name $KeyVaultCertificateName -FilePath $PfxFilePath -Password $PfxFilePassword
 		}
 		else {
-			# LATER: Determine if it's the same cert based on thumbprint of the PFX file
-			Write-Verbose "Demo certificate already exists in Key Vault."
+			# LATER: Determine if it's the same cert based on thumbprint of the PFX file. If not, create a new version.
+			Write-Verbose "Certificate already exists in Key Vault (thumbprint: '$($Cert.Thumbprint)')."
 		}
 
 		$CertSecretArray = $Cert.SecretId.Split('/')
@@ -119,7 +121,20 @@ if ($ImportPfx -And $PfxFilePath.Length -gt 0) {
 	}
 }
 
-$TemplateParameters = @{
+# Create an object of secrets and read secret values from files as necesary
+[hashtable]$ApiAppSecretValues = Get-Content -Raw $ApiAppSettingsSecretsFileName | ConvertFrom-Json -AsHashtable
+[string]$ReadFromFilePropertyName = 'readFromFile'
+
+foreach ($key in $ApiAppSecretValues.Keys) {
+	if ($ApiAppSecretValues[$key].ContainsKey($ReadFromFilePropertyName)) {
+		# Create or update the value property with the contents of the file
+		$ApiAppSecretValues[$key].value = Get-Content -Raw $ApiAppSecretValues[$key][$ReadFromFilePropertyName]
+		# Remove the readFromFile property because Bicep can't use it anyway
+		$ApiAppSecretValues[$key].Remove($ReadFromFilePropertyName)
+	}
+}
+
+[PSCustomObject]$TemplateParameters = @{
 	# REQUIRED
 	location                     = $Location
 	environment                  = $Environment
@@ -128,14 +143,13 @@ $TemplateParameters = @{
 	mySqlVersion                 = $MySQLVersion
 	databaseName                 = $DatabaseName
 	dbAdminPassword              = $DbAdminPassword
-	dbAppsvcLogin                = $DbAppSvcLogin
-	dbAppSvcPassword             = $DbAppSvcPassword
 	vNetAddressSpaceOctet4Min    = $VNetAddressSpaceOctet4Min
 	vNetAddressSpace             = $VNetAddressSpace
 	vNetCidr                     = $VNetCidr
 	subnetCidr                   = $SubnetCidr
 	apiHostName                  = $ApiHostName
 	webHostName                  = $WebHostName
+	vmLocalUserName              = $VmLocalUserName
 	vmLocalPassword              = $VmLocalPassword
 	intuneMdmRegister            = $IntuneMdmRegister
 	developerVmLoginAsAdmin      = $DeveloperVmLoginAsAdmin
@@ -143,6 +157,7 @@ $TemplateParameters = @{
 	kvCertificateSecretId        = $CertificateSecretId
 	kvCertificateName            = $CertificateName
 	configureAppGwTls            = ($CertificateName.Length -gt 0)
+	apiAppSettingsSecrets        = $ApiAppSecretValues
 
 	# OPTIONAL
 	developerPrincipalId         = $DeveloperPrincipalId
@@ -157,6 +172,7 @@ $TemplateParameters = @{
 	tags                         = $Tags
 }
 
+# Perform the ARM deployment
 $DeploymentResult = New-AzDeployment -Location $Location -Name "$WorkloadName-$Environment-$(Get-Date -Format 'yyyyMMddThhmmssZ' -AsUTC)" `
 	-TemplateFile ".\main.bicep" -TemplateParameterObject $TemplateParameters
 
@@ -173,10 +189,10 @@ if ($DeploymentResult.ProvisioningState -eq 'Succeeded') {
 	[string]$WebDomainVerificationId = $DeploymentResult.Outputs.webCustomDomainVerificationId.Value
 
 	[string]$SplitRegex = '^(.+?)(\.)(.+)'
-	$ApiHostName -match $SplitRegex
+	[bool]$r = $ApiHostName -match $SplitRegex
 	[string]$DomainName = $Matches[3]
 	[string]$ApiHostNameOnly = $Matches[1]
-	$WebHostName -match $SplitRegex
+	$r = $WebHostName -match $SplitRegex
 	[string]$WebHostNameOnly = $Matches[1]
 	
 	Write-Host "`nTo enable App Service custom domain name verification, create the following entries in the DNS for domain '$DomainName':"

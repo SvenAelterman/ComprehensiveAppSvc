@@ -36,15 +36,15 @@ param createHttpRedirectRoutingRules bool = true
 #disable-next-line secure-secrets-in-params
 param kvCertificateSecretId string = ''
 
-// App Svc parameters
-@secure()
-param dbAppSvcLogin string
-@secure()
-param dbAppSvcPassword string
+// MySQL params
 param databaseName string
 
+// App Svc parameters
 param apiAppSettings object
 param webAppSettings object
+@description('{ secretId: { name: "ENV_VAR_NAME", description: "", value: "" } }')
+@secure()
+param apiAppSettingsSecrets object
 
 param apiHostName string
 param webHostName string
@@ -264,6 +264,7 @@ module mySqlServerNameModule 'common-modules/shortname.bicep' = {
   }
 }
 
+// Create a private DNS zone in the local subscription (it's specific to this workload)
 module mySqlPrivateDnsZoneModule 'modules/networking/privateDnsZone.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'dns-zone-mysql'), 64)
   scope: networkingRg
@@ -272,6 +273,7 @@ module mySqlPrivateDnsZoneModule 'modules/networking/privateDnsZone.bicep' = {
   }
 }
 
+// Link the workload's VNet to the private DNS zone
 module mySqlPrivateDnsZoneLinkModule 'modules/networking/privateDnsZoneVNetLink.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'dns-zone-link-mysql'), 64)
   scope: networkingRg
@@ -279,6 +281,28 @@ module mySqlPrivateDnsZoneLinkModule 'modules/networking/privateDnsZoneVNetLink.
     dnsZoneName: mySqlPrivateDnsZoneModule.outputs.zoneName
     vNetId: networkModule.outputs.vNetId
   }
+}
+
+// Deploy MySQL Flexible Server
+module mySqlModule 'modules/mysql.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'mysql'), 64)
+  scope: dataRg
+  params: {
+    location: location
+    databaseName: databaseName
+    dbAdminPassword: dbAdminPassword
+    dbAdminUserName: dbAdminLogin
+    delegateSubnetId: networkModule.outputs.createdSubnets.mySql.id
+    mySqlServerName: mySqlServerNameModule.outputs.shortName
+    dnsZoneId: mySqlPrivateDnsZoneModule.outputs.zoneId
+    mySqlVersion: mySqlVersion
+    deploymentNameStructure: deploymentNameStructure
+    tags: tags
+  }
+  dependsOn: [
+    mySqlPrivateDnsZoneLinkModule
+    bastionModule
+  ]
 }
 
 // endregion
@@ -323,26 +347,7 @@ module loginRoleAssignment 'common-modules/roleAssignments/roleAssignment-rg.bic
   }
 }
 
-module mySqlModule 'modules/mysql.bicep' = {
-  name: take(replace(deploymentNameStructure, '{rtype}', 'mysql'), 64)
-  scope: dataRg
-  params: {
-    location: location
-    databaseName: databaseName
-    dbAdminPassword: dbAdminPassword
-    dbAdminUserName: dbAdminLogin
-    delegateSubnetId: networkModule.outputs.createdSubnets.mySql.id
-    mySqlServerName: mySqlServerNameModule.outputs.shortName
-    dnsZoneId: mySqlPrivateDnsZoneModule.outputs.zoneId
-    mySqlVersion: mySqlVersion
-    deploymentNameStructure: deploymentNameStructure
-    tags: tags
-  }
-  dependsOn: [
-    mySqlPrivateDnsZoneLinkModule
-    bastionModule
-  ]
-}
+// region Key Vault
 
 // Create a name for the Key Vault
 module keyVaultNameModule 'common-modules/shortname.bicep' = {
@@ -383,7 +388,22 @@ module keyVaultModule 'modules/keyVault/keyVault.bicep' = {
   }
 }
 
-// TODO: Create secrets for App Svc as necessary (database username, password)
+// Create Key Vault secrets for App Svc as necessary
+// TODO: Add additional secrets from runtime: SendGrid? MAIL_USER, MAIL_PASSWORD
+// TODO: Add Redis connection string
+module apiKeyVaultSecretsModule 'modules/keyVault/keyVault-secrets.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'kv-apisecrets'), 64)
+  scope: securityRg
+  params: {
+    keyVaultName: keyVaultModule.outputs.keyVaultName
+    secrets: apiAppSettingsSecrets
+    // HIPAA compliance does not require secrets to have an expiration date
+    secretValidityPeriod: ''
+    secretNamePrefix: 'ApiApp-'
+  }
+}
+
+// endregion
 
 // Deploy a Log Analytics Workspace
 module logModule 'modules/log.bicep' = {
@@ -414,13 +434,34 @@ var appSvcAllowedSubnetIds = [
 
 var actualAllowAccessSubnetIds = concat(appSvcAllowedSubnetIds, defaultSubnetIdArray)
 
+// Merge the secret values into the regular application settings
+module keyVaultSecretReferences 'common-modules/appSvcKeyVaultRefs.bicep' = {
+  name: take(replace(deploymentNameStructure, '{rtype}', 'kv-secretrefs'), 64)
+  scope: securityRg
+  params: {
+    keyVaultName: keyVaultModule.outputs.keyVaultName
+    appSettingSecretNames: reduce(apiKeyVaultSecretsModule.outputs.createdSecrets, {}, (cur, next) => union(cur, next))
+  }
+}
+
+var apiAppSettingsKvReferences = reduce(keyVaultSecretReferences.outputs.keyVaultRefs, {}, (cur, next) => union(cur, next))
+
+var apiAdditionalSettings = {
+  MYSQLDATABASE: mySqlModule.outputs.databaseName
+  MYSQLHOST: mySqlModule.outputs.fqdn
+  // TODO: MAIL_HOST
+}
+
+// Combine the secret settings with the regulat settings
+var actualApiAppSettings = union(apiAppSettings, apiAppSettingsKvReferences, apiAdditionalSettings)
+
 // Deploy the App Services
 module appSvcModule 'modules/appSvc/appSvc-main.bicep' = {
   name: take(replace(deploymentNameStructure, '{rtype}', 'app-main'), 64)
   scope: appsRg
   params: {
     location: location
-    apiAppSettings: apiAppSettings
+    apiAppSettings: actualApiAppSettings
     webAppSettings: webAppSettings
     deploymentNameStructure: deploymentNameStructure
     keyVaultName: keyVaultModule.outputs.keyVaultName
@@ -438,6 +479,7 @@ module appSvcModule 'modules/appSvc/appSvc-main.bicep' = {
 }
 
 // region Deploy the Application Gateway, with or without TLS
+
 var backends = [
   {
     name: 'api'
@@ -532,6 +574,7 @@ module corePrivateDnsZoneLinkModule 'modules/networking/privateDnsZoneVNetLink.b
   }
 }
 
+// Deploy Azure Cache for Redis with private endpoint
 module redisModule 'modules/redis.bicep' = if (deployRedis) {
   name: take(replace(deploymentNameStructure, '{rtype}', 'redis'), 64)
   scope: dataRg
@@ -545,8 +588,6 @@ module redisModule 'modules/redis.bicep' = if (deployRedis) {
     namingStructure: namingStructure
   }
 }
-
-// TODO: Save Redis connection string as secret in Key Vault and reference from API App Service
 
 // endregion
 

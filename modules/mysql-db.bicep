@@ -8,3 +8,5 @@ resource db 'Microsoft.DBforMySQL/flexibleServers/databases@2021-05-01' = {
     collation: 'utf8_general_ci'
   }
 }
+
+output databaseName string = db.name

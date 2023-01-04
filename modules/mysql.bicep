@@ -66,6 +66,6 @@ module db 'mysql-db.bicep' = {
 }
 
 output fqdn string = mySql.properties.fullyQualifiedDomainName
-output dbName string = databaseName
+output databaseName string = db.outputs.databaseName
 output serverName string = mySqlServerName
 output id string = mySql.id

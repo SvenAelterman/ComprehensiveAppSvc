@@ -1,3 +1,6 @@
+[CmdLetBinding()]
+Param()
+
 [string]$WorkloadName = 'WORKLOAD'
 [string]$Environment = 'TEST'
 [string]$Location = 'eastus'
@@ -16,7 +19,7 @@
 [string]$MySQLVersion = '8.0.21'
 [string]$DatabaseName = 'mydatabase'
 
-[PSCustomObject]$Tags = @{
+[hashtable]$Tags = @{
 	'date-created' = (Get-Date -Format 'yyyy-MM-dd')
 	purpose        = $Environment
 	lifetime       = 'short'
@@ -28,24 +31,27 @@
 # Only application settings known before deployment time are listed here
 # Database configuration values (FQDN, database name) are to be added after MySQL deployment
 # Secret values are to be injected in main.bicep
-[PSCustomObject]$ApiAppSettings = @{
+[hashtable]$ApiAppSettings = @{
+	# Example
 	WEBSITES_ENABLE_APP_SERVICE_STORAGE = $false
 }
 
-[PSCustomObject]$WebAppSettings = @{
+[string]$ApiAppSettingsSecretsFileName = 'secrets-sample.jsonc'
+
+[hashtable]$WebAppSettings = @{
 }
 
 # LATER: Get from Key Vault (not the project's Key Vault)
 [securestring]$DbAdminPassword = (ConvertTo-SecureString -Force -AsPlainText 'Abcd1234')
-[securestring]$DbAppSvcPassword = (ConvertTo-SecureString -Force -AsPlainText 'Abcd1234')
-[securestring]$DbAppSvcLogin = (ConvertTo-SecureString -Force -AsPlainText 'nolab')
 
 [string]$DeveloperPrincipalId = ''
 
 [bool]$DeveloperVmLoginAsAdmin = $true
 [bool]$IntuneMdmRegister = $true
 [string]$VMComputerName = 'vm-mgmt-01'
-[securestring]$VmLocalPassword = (ConvertTo-SecureString -Force -AsPlainText 'frey-YACT-crep1')
+[string]$VmLocalUserName = 'AzureUser'
+# Minimum 12 chars, 3 character classes
+[securestring]$VmLocalPassword = (ConvertTo-SecureString -Force -AsPlainText 'SuperSecr3tVmPassw_rd')
 
 [string]$PfxFilePath = 'wild-contoso-com.pfx'
 [securestring]$PfxFilePassword = (ConvertTo-SecureString -AsPlainText -Force 'Azure123456!')
@@ -59,11 +65,12 @@
 	-TargetSubscription $TargetSubscription -Tags $Tags `
 	-VNetAddressSpaceOctet4Min $VNetAddressSpaceOctet4Min -VNetAddressSpace $VNetAddressSpace `
 	-VNetCidr $VNetCidr -SubnetCidr $SubnetCidr `
-	-VmLocalPassword $VmLocalPassword `
+	-VmLocalUserName $VmLocalUserName -VmLocalPassword $VmLocalPassword `
 	-DatabaseName $DatabaseName -MySQLVersion $MySQLVersion `
 	-WebAppSettings $WebAppSettings -ApiAppSettings $ApiAppSettings -WebHostName $WebHostName -ApiHostName $ApiHostName `
-	-DbAdminPassword $DbAdminPassword -DbAppSvcLogin $DbAppSvcLogin -DbAppSvcPassword $DbAppSvcPassword `
+	-DbAdminPassword $DbAdminPassword `
 	-DeveloperPrincipalId $DeveloperPrincipalId -IntuneMdmRegister $IntuneMdmRegister -DeveloperVmLoginAsAdmin $DeveloperVmLoginAsAdmin `
-	-VMComputerName $VMComputerName -ImportPfx $ImportPfx -Verbose `
+	-VMComputerName $VMComputerName -ImportPfx $ImportPfx `
 	-KeyVaultCertificateName $CertificateName -PfxFilePath $PfxFilePath -PfxFilePassword $PfxFilePassword `
-	-DeployRedis $DeployRedis -CoreSubscriptionId $CoreSubscriptionId -CoreDnsZoneResourceGroupName $CoreDnsZoneResourceGroupName
+	-DeployRedis $DeployRedis -CoreSubscriptionId $CoreSubscriptionId -CoreDnsZoneResourceGroupName $CoreDnsZoneResourceGroupName `
+	-ApiAppSettingsSecretsFileName $ApiAppSettingsSecretsFileName

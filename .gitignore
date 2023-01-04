@@ -1,3 +1,5 @@
 *.user.ps1
 *.pfx
 !contoso-com.pfx
+secrets.jsonc
+*.key
