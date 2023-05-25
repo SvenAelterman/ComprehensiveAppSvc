@@ -134,7 +134,7 @@ foreach ($key in $ApiAppSecretValues.Keys) {
 	}
 }
 
-[PSCustomObject]$TemplateParameters = @{
+[hashtable]$TemplateParameters = @{
 	# REQUIRED
 	location                     = $Location
 	environment                  = $Environment
